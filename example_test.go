@@ -15,20 +15,23 @@ type Counter struct {
 	focused bool
 }
 
-func (c *Counter) Render(width int) []string {
+func (c *Counter) Render(ctx pitui.RenderContext) pitui.RenderResult {
 	line := fmt.Sprintf("Count: %d (press any key)", c.Count)
+	if pitui.VisibleWidth(line) > ctx.Width {
+		line = pitui.Truncate(line, ctx.Width, "...")
+	}
+	var cursor *pitui.CursorPos
 	if c.focused {
-		// Emit cursor marker at end of visible text.
-		line += pitui.CursorMarker
+		cursor = &pitui.CursorPos{Row: 0, Col: pitui.VisibleWidth(line)}
 	}
-	if pitui.VisibleWidth(line) > width {
-		line = pitui.Truncate(line, width, "...")
+	return pitui.RenderResult{
+		Lines:  []string{line},
+		Cursor: cursor,
+		Dirty:  true,
 	}
-	return []string{line}
 }
 
 func (c *Counter) HandleInput(data []byte) {
-	// Ctrl-C: the caller should handle exit.
 	c.Count++
 }
 
@@ -40,15 +43,18 @@ type Banner struct {
 	Text string
 }
 
-func (b *Banner) Render(width int) []string {
+func (b *Banner) Render(ctx pitui.RenderContext) pitui.RenderResult {
 	var lines []string
 	for _, line := range strings.Split(b.Text, "\n") {
-		if pitui.VisibleWidth(line) > width {
-			line = pitui.Truncate(line, width, "")
+		if pitui.VisibleWidth(line) > ctx.Width {
+			line = pitui.Truncate(line, ctx.Width, "")
 		}
 		lines = append(lines, line)
 	}
-	return lines
+	return pitui.RenderResult{
+		Lines: lines,
+		Dirty: true,
+	}
 }
 
 func (b *Banner) Invalidate() {}
