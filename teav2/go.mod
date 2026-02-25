@@ -1,4 +1,4 @@
-module github.com/vito/dang/pkg/pitui/teav2
+module codeberg.org/vito/tuist/teav2
 
 go 1.25.6
 

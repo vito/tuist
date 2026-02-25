@@ -1,9 +1,9 @@
 // Command demo shows multiple bubbletea v2 bubbles embedded inside a
-// pitui TUI, each wrapped in a border. Tab switches focus between them.
+// tuist TUI, each wrapped in a border. Tab switches focus between them.
 //
 // Usage:
 //
-//	go run ./pkg/pitui/teav2/demo
+//	go run ./pkg/tuist/teav2/demo
 package main
 
 import (
@@ -19,8 +19,8 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
-	"github.com/vito/dang/pkg/pitui/teav2"
+	"codeberg.org/vito/tuist"
+	"codeberg.org/vito/tuist/teav2"
 )
 
 func main() {
@@ -31,8 +31,8 @@ func main() {
 }
 
 func run() error {
-	term := pitui.NewProcessTerminal()
-	tui := pitui.New(term)
+	term := tuist.NewProcessTerminal()
+	tui := tuist.New(term)
 
 	// Enable render debug logging.
 	logPath := "/tmp/dang_render_debug.log"
@@ -97,10 +97,10 @@ func run() error {
 
 	// ── Viewport ───────────────────────────────────────────────
 	content := strings.Join([]string{
-		"Welcome to the pitui + bubbletea v2 demo!",
+		"Welcome to the tuist + bubbletea v2 demo!",
 		"",
 		"This demo shows three bubbletea bubbles — a list, a table,",
-		"and a viewport — each embedded as a pitui component inside",
+		"and a viewport — each embedded as a tuist component inside",
 		"a bordered panel.",
 		"",
 		"Press Tab to cycle focus between panels. The focused panel",
@@ -109,9 +109,9 @@ func run() error {
 		"",
 		"Press q or Ctrl+C to quit.",
 		"",
-		"The border, focus management, and layout are all plain pitui",
+		"The border, focus management, and layout are all plain tuist",
 		"components — no bubbletea Program is running. Each bubble is",
-		"just a Model whose View() is called during pitui's render",
+		"just a Model whose View() is called during tuist's render",
 		"loop, and whose Update() is fed parsed key events from raw",
 		"terminal input.",
 	}, "\n")
@@ -147,7 +147,7 @@ func run() error {
 		}
 	}
 
-	tui.AddInputListener(func(_ pitui.EventContext, ev uv.Event) bool {
+	tui.AddInputListener(func(_ tuist.EventContext, ev uv.Event) bool {
 		kp, ok := ev.(uv.KeyPressEvent)
 		if !ok {
 			return false
@@ -195,16 +195,16 @@ func (i langItem) FilterValue() string { return i.title }
 
 // ── borderBox ──────────────────────────────────────────────────────────────
 
-// borderBox is a pitui component that renders a child inside a bordered
+// borderBox is a tuist component that renders a child inside a bordered
 // panel. The border style changes depending on focus.
 type borderBox struct {
-	pitui.Compo
-	child   pitui.Component
+	tuist.Compo
+	child   tuist.Component
 	height  int // inner height (lines of child content visible)
 	focused bool
 }
 
-func newBorderBox(child pitui.Component, height int) *borderBox {
+func newBorderBox(child tuist.Component, height int) *borderBox {
 	b := &borderBox{child: child, height: height}
 	b.Update()
 	return b
@@ -235,14 +235,14 @@ func (b *borderBox) style() lipgloss.Style {
 		Padding(0, 1)
 }
 
-func (b *borderBox) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (b *borderBox) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	s := b.style()
 	innerWidth := ctx.Width - s.GetHorizontalFrameSize()
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
 
-	childCtx := pitui.RenderContext{
+	childCtx := tuist.RenderContext{
 		Width:  innerWidth,
 		Height: b.height,
 	}
@@ -255,11 +255,11 @@ func (b *borderBox) Render(ctx pitui.RenderContext) pitui.RenderResult {
 		Height(b.height).
 		Render(content)
 
-	return pitui.RenderResult{Lines: strings.Split(rendered, "\n")}
+	return tuist.RenderResult{Lines: strings.Split(rendered, "\n")}
 }
 
-func (b *borderBox) HandleKeyPress(ctx pitui.EventContext, ev uv.KeyPressEvent) bool {
-	if ic, ok := b.child.(pitui.Interactive); ok {
+func (b *borderBox) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
+	if ic, ok := b.child.(tuist.Interactive); ok {
 		return ic.HandleKeyPress(ctx, ev)
 	}
 	return false

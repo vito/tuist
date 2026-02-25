@@ -1,4 +1,4 @@
-package pitui_test
+package tuist_test
 
 import (
 	"fmt"
@@ -7,63 +7,63 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
+	"codeberg.org/vito/tuist"
 )
 
 // Counter is a simple interactive component that displays a count and
 // increments it when any key is pressed.
 type Counter struct {
-	pitui.Compo
+	tuist.Compo
 	Count   int
 	focused bool
 }
 
-func (c *Counter) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (c *Counter) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	line := fmt.Sprintf("Count: %d (press any key)", c.Count)
-	if pitui.VisibleWidth(line) > ctx.Width {
-		line = pitui.Truncate(line, ctx.Width, "...")
+	if tuist.VisibleWidth(line) > ctx.Width {
+		line = tuist.Truncate(line, ctx.Width, "...")
 	}
-	var cursor *pitui.CursorPos
+	var cursor *tuist.CursorPos
 	if c.focused {
-		cursor = &pitui.CursorPos{Row: 0, Col: pitui.VisibleWidth(line)}
+		cursor = &tuist.CursorPos{Row: 0, Col: tuist.VisibleWidth(line)}
 	}
-	return pitui.RenderResult{
+	return tuist.RenderResult{
 		Lines:  []string{line},
 		Cursor: cursor,
 	}
 }
 
-func (c *Counter) HandleKeyPress(_ pitui.EventContext, ev uv.KeyPressEvent) bool {
+func (c *Counter) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool {
 	c.Count++
 	c.Update()
 	return true
 }
 
-func (c *Counter) SetFocused(_ pitui.EventContext, focused bool) { c.focused = focused }
+func (c *Counter) SetFocused(_ tuist.EventContext, focused bool) { c.focused = focused }
 
 // Banner is a static component that renders a multi-line banner.
 type Banner struct {
-	pitui.Compo
+	tuist.Compo
 	Text string
 }
 
-func (b *Banner) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (b *Banner) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	var lines []string
 	for line := range strings.SplitSeq(b.Text, "\n") {
-		if pitui.VisibleWidth(line) > ctx.Width {
-			line = pitui.Truncate(line, ctx.Width, "")
+		if tuist.VisibleWidth(line) > ctx.Width {
+			line = tuist.Truncate(line, ctx.Width, "")
 		}
 		lines = append(lines, line)
 	}
-	return pitui.RenderResult{Lines: lines}
+	return tuist.RenderResult{Lines: lines}
 }
 
 func Example() {
 	// This example shows the basic wiring. In a real app you'd use
 	// NewProcessTerminal() and handle Ctrl-C properly.
 	_ = func() {
-		term := pitui.NewProcessTerminal()
-		tui := pitui.New(term)
+		term := tuist.NewProcessTerminal()
+		tui := tuist.New(term)
 
 		// Start the TUI.
 		if err := tui.Start(); err != nil {

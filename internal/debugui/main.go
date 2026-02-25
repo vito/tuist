@@ -1,4 +1,4 @@
-// Command render-debug launches a live web dashboard for pitui render
+// Command render-debug launches a live web dashboard for tuist render
 // performance metrics. It tails a JSONL log file and streams data to
 // the browser via Server-Sent Events.
 //

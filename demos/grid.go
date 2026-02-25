@@ -1,10 +1,10 @@
 // grid renders an interactive grid of colored rectangles that respond to
-// mouse hover and click-to-focus, demonstrating pitui's marker-based zone
+// mouse hover and click-to-focus, demonstrating tuist's marker-based zone
 // system with side-by-side layout.
 //
 // Usage:
 //
-//	go run ./pkg/pitui/demos grid
+//	go run ./pkg/tuist/demos grid
 package main
 
 import (
@@ -18,7 +18,7 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
+	"codeberg.org/vito/tuist"
 )
 
 const maxCells = 400
@@ -31,7 +31,7 @@ func gridMain() {
 }
 
 func runGrid() error {
-	tui := pitui.New(sharedTerm)
+	tui := tuist.New(sharedTerm)
 
 	g := newGrid()
 	tui.Dispatch(func() {
@@ -77,7 +77,7 @@ var (
 // ── Grid ───────────────────────────────────────────────────────────────────
 
 type grid struct {
-	pitui.Compo
+	tuist.Compo
 	cells    []*cell
 	cols     int // current dimensions, set during Render
 	rows     int
@@ -96,7 +96,7 @@ func newGrid() *grid {
 	return g
 }
 
-func (g *grid) OnMount(ctx pitui.EventContext) {
+func (g *grid) OnMount(ctx tuist.EventContext) {
 	for _, c := range g.cells {
 		ctx.Attach(c)
 	}
@@ -104,7 +104,7 @@ func (g *grid) OnMount(ctx pitui.EventContext) {
 
 // HandleKeyPress handles global keys and arrow navigation. Cell key
 // events bubble here because cells are Attached with the grid as parent.
-func (g *grid) HandleKeyPress(ctx pitui.EventContext, ev uv.KeyPressEvent) bool {
+func (g *grid) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	switch {
 	case key.Text == "q" || (key.Code == 'c' && key.Mod == uv.ModCtrl):
@@ -135,7 +135,7 @@ func (g *grid) HandleKeyPress(ctx pitui.EventContext, ev uv.KeyPressEvent) bool 
 	return false
 }
 
-func (g *grid) navigate(ctx pitui.EventContext, code rune) bool {
+func (g *grid) navigate(ctx tuist.EventContext, code rune) bool {
 	if g.cols == 0 || g.rows == 0 {
 		return false
 	}
@@ -176,7 +176,7 @@ func (g *grid) navigate(ctx pitui.EventContext, code rune) bool {
 	return true
 }
 
-func (g *grid) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (g *grid) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	w := ctx.Width
 	h := ctx.ScreenHeight - 1 // reserve 1 line for status bar
 
@@ -195,7 +195,7 @@ func (g *grid) Render(ctx pitui.RenderContext) pitui.RenderResult {
 				break
 			}
 			cell := g.cells[idx]
-			rendered := pitui.Mark(cell, cell.renderBox(cellW, cellH, r, c))
+			rendered := tuist.Mark(cell, cell.renderBox(cellW, cellH, r, c))
 			rowCells = append(rowCells, rendered)
 		}
 		if len(rowCells) == 0 {
@@ -213,7 +213,7 @@ func (g *grid) Render(ctx pitui.RenderContext) pitui.RenderResult {
 	// Status bar.
 	allLines = append(allLines, g.renderStatus(w))
 
-	return pitui.RenderResult{Lines: allLines}
+	return tuist.RenderResult{Lines: allLines}
 }
 
 func (g *grid) renderStatus(w int) string {
@@ -253,7 +253,7 @@ func (g *grid) renderStatus(w int) string {
 // ── Cell ───────────────────────────────────────────────────────────────────
 
 type cell struct {
-	pitui.Compo
+	tuist.Compo
 	grid    *grid
 	index   int
 	hovered bool
@@ -263,8 +263,8 @@ type cell struct {
 }
 
 // Render returns empty — cells render inline via renderBox + Mark.
-func (c *cell) Render(_ pitui.RenderContext) pitui.RenderResult {
-	return pitui.RenderResult{}
+func (c *cell) Render(_ tuist.RenderContext) tuist.RenderResult {
+	return tuist.RenderResult{}
 }
 
 var curStyle = lipgloss.NewStyle().Background(lipgloss.Color("255")).Foreground(lipgloss.Color("0"))
@@ -284,7 +284,7 @@ func (c *cell) renderBox(w, h, row, col int) string {
 		lines := strings.Split(box, "\n")
 		if c.cursorR < len(lines) {
 			cursor := curStyle.Render(" ")
-			lines[c.cursorR] = pitui.CompositeLineAt(lines[c.cursorR], cursor, c.cursorC, 1, w)
+			lines[c.cursorR] = tuist.CompositeLineAt(lines[c.cursorR], cursor, c.cursorC, 1, w)
 		}
 		box = strings.Join(lines, "\n")
 	}
@@ -308,8 +308,8 @@ func (c *cell) colors(row, col int) (color.Color, color.Color) {
 	}
 }
 
-// HandleMouse implements pitui.MouseEnabled — click to focus, motion to track cursor.
-func (c *cell) HandleMouse(ctx pitui.EventContext, ev pitui.MouseEvent) bool {
+// HandleMouse implements tuist.MouseEnabled — click to focus, motion to track cursor.
+func (c *cell) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) bool {
 	switch ev.MouseEvent.(type) {
 	case uv.MouseClickEvent:
 		if ev.Mouse().Button == uv.MouseLeft {
@@ -329,8 +329,8 @@ func (c *cell) HandleMouse(ctx pitui.EventContext, ev pitui.MouseEvent) bool {
 	return false
 }
 
-// SetHovered implements pitui.Hoverable.
-func (c *cell) SetHovered(_ pitui.EventContext, hovered bool) {
+// SetHovered implements tuist.Hoverable.
+func (c *cell) SetHovered(_ tuist.EventContext, hovered bool) {
 	if hovered != c.hovered {
 		c.hovered = hovered
 		if !hovered {
@@ -341,8 +341,8 @@ func (c *cell) SetHovered(_ pitui.EventContext, hovered bool) {
 	}
 }
 
-// SetFocused implements pitui.Focusable.
-func (c *cell) SetFocused(_ pitui.EventContext, focused bool) {
+// SetFocused implements tuist.Focusable.
+func (c *cell) SetFocused(_ tuist.EventContext, focused bool) {
 	if focused != c.focused {
 		c.focused = focused
 		c.grid.Update()
@@ -350,6 +350,6 @@ func (c *cell) SetFocused(_ pitui.EventContext, focused bool) {
 }
 
 // HandleKeyPress — cells don't consume keys; they bubble to the grid.
-func (c *cell) HandleKeyPress(_ pitui.EventContext, _ uv.KeyPressEvent) bool {
+func (c *cell) HandleKeyPress(_ tuist.EventContext, _ uv.KeyPressEvent) bool {
 	return false
 }

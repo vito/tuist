@@ -1,11 +1,11 @@
-// logs is an interactive stress test for pitui rendering. It creates a
+// logs is an interactive stress test for tuist rendering. It creates a
 // TUI with a large scrollable log and hotkeys to exercise every rendering
 // code path. Render debug is automatically enabled.
 //
 // Usage:
 //
-//	go run ./pkg/pitui/demos logs
-//	go run ./pkg/pitui/demos logs -lines 500
+//	go run ./pkg/tuist/demos logs
+//	go run ./pkg/tuist/demos logs -lines 500
 package main
 
 import (
@@ -21,7 +21,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
+	"codeberg.org/vito/tuist"
 )
 
 func logsMain() {
@@ -35,7 +35,7 @@ func logsMain() {
 }
 
 func runLogs(initialLines int) error {
-	tui := pitui.New(sharedTerm)
+	tui := tuist.New(sharedTerm)
 
 	// Auto-enable render debug.
 	logPath := "/tmp/dang_render_debug.log"
@@ -59,9 +59,9 @@ func runLogs(initialLines int) error {
 
 	// State.
 	var (
-		overlayHandle    *pitui.OverlayHandle
-		spinner          *pitui.Spinner
-		spinnerSlot      *pitui.Slot
+		overlayHandle    *tuist.OverlayHandle
+		spinner          *tuist.Spinner
+		spinnerSlot      *tuist.Slot
 		continuousTicker *time.Ticker
 		continuousDone   chan struct{}
 	)
@@ -69,10 +69,10 @@ func runLogs(initialLines int) error {
 	quit := make(chan struct{})
 
 	// Spinner setup.
-	spinner = pitui.NewSpinner()
+	spinner = tuist.NewSpinner()
 	spinner.Label = "evaluating..."
 	spinner.Style = func(s string) string { return "\x1b[35m" + s + "\x1b[0m" }
-	spinnerSlot = pitui.NewSlot(nil)
+	spinnerSlot = tuist.NewSlot(nil)
 	tui.RemoveChild(statusBar)
 	tui.AddChild(spinnerSlot)
 	tui.AddChild(statusBar)
@@ -94,7 +94,7 @@ func runLogs(initialLines int) error {
 	}
 
 	// Input handler.
-	tui.AddInputListener(func(ctx pitui.EventContext, ev uv.Event) bool {
+	tui.AddInputListener(func(ctx tuist.EventContext, ev uv.Event) bool {
 		kp, ok := ev.(uv.KeyPressEvent)
 		if !ok {
 			return false
@@ -178,9 +178,9 @@ func runLogs(initialLines int) error {
 					"│  file            │",
 					"╰──────────────────╯",
 				}}
-				overlayHandle = ctx.ShowOverlay(overlay, &pitui.OverlayOptions{
-					Width:   pitui.SizeAbs(22),
-					Anchor:  pitui.AnchorBottomLeft,
+				overlayHandle = ctx.ShowOverlay(overlay, &tuist.OverlayOptions{
+					Width:   tuist.SizeAbs(22),
+					Anchor:  tuist.AnchorBottomLeft,
 					OffsetX: 2,
 					OffsetY: -1,
 				})
@@ -262,7 +262,7 @@ func runLogs(initialLines int) error {
 // ── stress log component ───────────────────────────────────────────────────
 
 type stressLog struct {
-	pitui.Compo
+	tuist.Compo
 	mu       sync.Mutex
 	entries  []stressEntry
 	verbose  bool
@@ -277,7 +277,7 @@ type stressEntry struct {
 
 func newStressLog(n int) *stressLog {
 	levels := []string{"INFO", "DEBUG", "WARN", "ERROR", "TRACE"}
-	modules := []string{"pitui.render", "pitui.diff", "pitui.overlay", "pitui.input", "pitui.cursor",
+	modules := []string{"tuist.render", "tuist.diff", "tuist.overlay", "tuist.input", "tuist.cursor",
 		"dang.eval", "dang.parse", "dang.infer", "dang.graphql", "dang.repl"}
 	messages := []string{
 		"processing request",
@@ -311,7 +311,7 @@ func newStressLog(n int) *stressLog {
 	return s
 }
 
-func (s *stressLog) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (s *stressLog) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -336,16 +336,16 @@ func (s *stressLog) Render(ctx pitui.RenderContext) pitui.RenderResult {
 			levelStyled = e.level
 		}
 		line := fmt.Sprintf("%s %-5s %s", ts, levelStyled, e.message)
-		if pitui.VisibleWidth(line) > ctx.Width {
-			line = pitui.Truncate(line, ctx.Width, "")
+		if tuist.VisibleWidth(line) > ctx.Width {
+			line = tuist.Truncate(line, ctx.Width, "")
 		}
 		lines = append(lines, line)
 
 		if s.verbose {
 			detail := fmt.Sprintf("         → stack: %s | goroutine: %d | alloc: %dKB",
 				randomStack(), rand.Intn(500), rand.Intn(8192))
-			if pitui.VisibleWidth(detail) > ctx.Width {
-				detail = pitui.Truncate(detail, ctx.Width, "")
+			if tuist.VisibleWidth(detail) > ctx.Width {
+				detail = tuist.Truncate(detail, ctx.Width, "")
 			}
 			if s.colorize {
 				detail = "\x1b[90m" + detail + "\x1b[0m"
@@ -354,14 +354,14 @@ func (s *stressLog) Render(ctx pitui.RenderContext) pitui.RenderResult {
 		}
 	}
 
-	return pitui.RenderResult{Lines: lines}
+	return tuist.RenderResult{Lines: lines}
 }
 
 func randomStack() string {
 	frames := []string{
-		"main.run", "pitui.doRender", "pitui.compositeOverlays",
-		"pitui.CompositeLineAt", "ansi.Truncate", "dang.Eval",
-		"runtime.goexit", "net/http.serve", "pitui.handleInput",
+		"main.run", "tuist.doRender", "tuist.compositeOverlays",
+		"tuist.CompositeLineAt", "ansi.Truncate", "dang.Eval",
+		"runtime.goexit", "net/http.serve", "tuist.handleInput",
 	}
 	n := 2 + rand.Intn(3)
 	parts := make([]string, n)
@@ -388,7 +388,7 @@ func appendLines(log *stressLog, n int) {
 // ── helper components ──────────────────────────────────────────────────────
 
 type statusBarComponent struct {
-	pitui.Compo
+	tuist.Compo
 	mu   sync.Mutex
 	line string
 }
@@ -399,21 +399,21 @@ func (s *statusBarComponent) set(line string) {
 	s.mu.Unlock()
 	s.Update()
 }
-func (s *statusBarComponent) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (s *statusBarComponent) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	s.mu.Lock()
 	line := s.line
 	s.mu.Unlock()
-	if pitui.VisibleWidth(line) > ctx.Width {
-		line = pitui.Truncate(line, ctx.Width, "")
+	if tuist.VisibleWidth(line) > ctx.Width {
+		line = tuist.Truncate(line, ctx.Width, "")
 	}
-	return pitui.RenderResult{Lines: []string{line}}
+	return tuist.RenderResult{Lines: []string{line}}
 }
 
 type staticLines struct {
-	pitui.Compo
+	tuist.Compo
 	lines []string
 }
 
-func (s *staticLines) Render(ctx pitui.RenderContext) pitui.RenderResult {
-	return pitui.RenderResult{Lines: s.lines}
+func (s *staticLines) Render(ctx tuist.RenderContext) tuist.RenderResult {
+	return tuist.RenderResult{Lines: s.lines}
 }

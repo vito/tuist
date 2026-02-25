@@ -1,10 +1,10 @@
-// Package pitui implements a differential terminal renderer that uses the
+// Package tuist implements a differential terminal renderer that uses the
 // normal scrollback buffer (no alternate screen). It can surgically update
 // any line via cursor movement, and falls back to a full clear+repaint when
 // off-screen content changes. Synchronized output prevents flickering.
 //
 // This is a Go port of the pi TUI renderer.
-package pitui
+package tuist
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-// Package teav1 adapts bubbletea v1 models for use as pitui components.
+// Package teav1 adapts bubbletea v1 models for use as tuist components.
 package teav1
 
 import (
@@ -7,10 +7,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
+	"codeberg.org/vito/tuist"
 )
 
-// Wrap wraps a bubbletea v1 model as a pitui Component. It bridges
+// Wrap wraps a bubbletea v1 model as a tuist Component. It bridges
 // the two frameworks:
 //
 //   - Render calls the model's View() and splits into lines
@@ -25,7 +25,7 @@ import (
 //	comp := teav1.New(m)
 //	tui.AddChild(comp)
 type Wrap struct {
-	pitui.Compo
+	tuist.Compo
 	model    tea.Model
 	width    int
 	height   int
@@ -33,7 +33,7 @@ type Wrap struct {
 	dispatch func(func()) // set on mount; schedules work on the UI goroutine
 }
 
-// New wraps a bubbletea v1 model as a pitui Component.
+// New wraps a bubbletea v1 model as a tuist Component.
 // The model's Init() is called when the component is mounted (OnMount),
 // ensuring commands are dispatched on the UI goroutine.
 func New(model tea.Model) *Wrap {
@@ -50,7 +50,7 @@ func (b *Wrap) OnQuit(fn func()) {
 
 // OnMount captures the dispatch function for scheduling command results
 // back on the UI goroutine, and calls the model's Init().
-func (b *Wrap) OnMount(ctx pitui.EventContext) {
+func (b *Wrap) OnMount(ctx tuist.EventContext) {
 	b.dispatch = ctx.Dispatch
 	if cmd := b.model.Init(); cmd != nil {
 		b.execCmd(cmd)
@@ -101,8 +101,8 @@ func (b *Wrap) execCmd(cmd tea.Cmd) {
 	}()
 }
 
-// Render implements pitui.Component.
-func (b *Wrap) Render(ctx pitui.RenderContext) pitui.RenderResult {
+// Render implements tuist.Component.
+func (b *Wrap) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	if ctx.Width != b.width || ctx.Height != b.height {
 		b.width = ctx.Width
 		b.height = ctx.Height
@@ -121,11 +121,11 @@ func (b *Wrap) Render(ctx pitui.RenderContext) pitui.RenderResult {
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-	return pitui.RenderResult{Lines: lines}
+	return tuist.RenderResult{Lines: lines}
 }
 
-// HandleKeyPress implements pitui.Interactive.
-func (b *Wrap) HandleKeyPress(_ pitui.EventContext, ev uv.KeyPressEvent) bool {
+// HandleKeyPress implements tuist.Interactive.
+func (b *Wrap) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool {
 	b.updateModel(uvKeyToV1(uv.Key(ev)))
 	return true // bubbletea models consume all key events
 }

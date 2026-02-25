@@ -1,11 +1,11 @@
-// keygen is a keygen-style ASCII art stress test for pitui.
+// keygen is a keygen-style ASCII art stress test for tuist.
 // It renders an animated Mandelbrot zoom with a retro status chrome,
 // pushing a full-screen repaint every frame to exercise the render pipeline.
 //
 // Usage:
 //
-//	go run ./pkg/pitui/demos keygen
-//	go run ./pkg/pitui/demos keygen -bench
+//	go run ./pkg/tuist/demos keygen
+//	go run ./pkg/tuist/demos keygen -bench
 package main
 
 import (
@@ -24,7 +24,7 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
+	"codeberg.org/vito/tuist"
 )
 
 func keygenMain() {
@@ -52,9 +52,9 @@ func runKeygen(duration time.Duration, cpuProfile, heapProfile string, bench boo
 		}
 		defer pprof.StopCPUProfile()
 	}
-	tui := pitui.New(sharedTerm)
+	tui := tuist.New(sharedTerm)
 
-	logPath := "/tmp/pitui-keygen-debug.log"
+	logPath := "/tmp/tuist-keygen-debug.log"
 	debugFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("open debug log: %w", err)
@@ -129,15 +129,15 @@ func runKeygen(duration time.Duration, cpuProfile, heapProfile string, bench boo
 // ── Inline input widget ────────────────────────────────────────────────────
 
 // inlineInput is a reusable inline numeric editor that implements
-// pitui.MouseEnabled, pitui.Hoverable, pitui.Focusable, and
-// pitui.Interactive. It is Attached (not tree-mounted) to the TUI and
+// tuist.MouseEnabled, tuist.Hoverable, tuist.Focusable, and
+// tuist.Interactive. It is Attached (not tree-mounted) to the TUI and
 // receives mouse events via InlineRegion declarations in the parent's
 // RenderResult.
 //
 // The parent uses [LineBuilder.Comp] to embed the input's rendered string
 // into a line — no manual position tracking or event forwarding needed.
 type inlineInput struct {
-	pitui.Compo
+	tuist.Compo
 
 	value  *float64     // pointer to the backing value
 	format string       // printf format for display (e.g. "%.12f")
@@ -152,8 +152,8 @@ type inlineInput struct {
 
 // Render satisfies Component but returns nothing — the input renders
 // inline via RenderInline, embedded in the parent's line.
-func (inp *inlineInput) Render(_ pitui.RenderContext) pitui.RenderResult {
-	return pitui.RenderResult{}
+func (inp *inlineInput) Render(_ tuist.RenderContext) tuist.RenderResult {
+	return tuist.RenderResult{}
 }
 
 // RenderInline returns the styled string for embedding in a LineBuilder.
@@ -191,10 +191,10 @@ func (inp *inlineInput) renderEdit() string {
 		coordEditStyle.Render(after)
 }
 
-// HandleMouse implements pitui.MouseEnabled — handles clicks to start editing.
+// HandleMouse implements tuist.MouseEnabled — handles clicks to start editing.
 // The framework only calls this when the mouse is within the input's
 // InlineRegion, so no hit testing is needed.
-func (inp *inlineInput) HandleMouse(ctx pitui.EventContext, ev pitui.MouseEvent) bool {
+func (inp *inlineInput) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) bool {
 	switch ev.MouseEvent.(type) {
 	case uv.MouseClickEvent:
 		if ev.Mouse().Button != uv.MouseLeft {
@@ -208,24 +208,24 @@ func (inp *inlineInput) HandleMouse(ctx pitui.EventContext, ev pitui.MouseEvent)
 	return false
 }
 
-// SetHovered implements pitui.Hoverable — updates hover highlight.
-func (inp *inlineInput) SetHovered(_ pitui.EventContext, hovered bool) {
+// SetHovered implements tuist.Hoverable — updates hover highlight.
+func (inp *inlineInput) SetHovered(_ tuist.EventContext, hovered bool) {
 	if hovered != inp.hovered {
 		inp.hovered = hovered
 		inp.chrome.Update()
 	}
 }
 
-// SetFocused implements pitui.Focusable — commits the edit when focus
+// SetFocused implements tuist.Focusable — commits the edit when focus
 // moves away (e.g. user clicks on another component).
-func (inp *inlineInput) SetFocused(_ pitui.EventContext, focused bool) {
+func (inp *inlineInput) SetFocused(_ tuist.EventContext, focused bool) {
 	if !focused && inp.editing {
 		inp.applyEdit()
 	}
 }
 
-// HandleKeyPress implements pitui.Interactive — handles editing keys.
-func (inp *inlineInput) HandleKeyPress(ctx pitui.EventContext, ev uv.KeyPressEvent) bool {
+// HandleKeyPress implements tuist.Interactive — handles editing keys.
+func (inp *inlineInput) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
 	if !inp.editing {
 		return false
 	}
@@ -294,7 +294,7 @@ func (inp *inlineInput) HandleKeyPress(ctx pitui.EventContext, ev uv.KeyPressEve
 	return true // consume all keys while editing
 }
 
-func (inp *inlineInput) startEdit(ctx pitui.EventContext) {
+func (inp *inlineInput) startEdit(ctx tuist.EventContext) {
 	inp.buf = []rune(fmt.Sprintf(inp.format, *inp.value))
 	inp.editing = true
 	inp.cursor = len(inp.buf)
@@ -344,13 +344,13 @@ var palette = []string{
 const resetColor = "\x1b[0m"
 
 type activeNotification struct {
-	handle *pitui.OverlayHandle
+	handle *tuist.OverlayHandle
 	width  int
 	height int
 }
 
 type fractalView struct {
-	pitui.Compo
+	tuist.Compo
 	frame         int
 	paused        bool
 	targetRe      float64
@@ -373,7 +373,7 @@ func newFractalView() *fractalView {
 	return f
 }
 
-func (f *fractalView) notify(ctx pitui.EventContext, msg string) {
+func (f *fractalView) notify(ctx tuist.EventContext, msg string) {
 	bubble := &notificationBubble{msg: msg}
 	rendered := bubbleStyle.Render(msg)
 	bubbleW := lipgloss.Width(rendered)
@@ -384,9 +384,9 @@ func (f *fractalView) notify(ctx pitui.EventContext, msg string) {
 		y += n.height
 	}
 
-	handle := ctx.ShowOverlay(bubble, &pitui.OverlayOptions{
-		Width:   pitui.SizeAbs(bubbleW),
-		Anchor:  pitui.AnchorTopRight,
+	handle := ctx.ShowOverlay(bubble, &tuist.OverlayOptions{
+		Width:   tuist.SizeAbs(bubbleW),
+		Anchor:  tuist.AnchorTopRight,
 		OffsetX: -1,
 		OffsetY: y,
 	})
@@ -412,9 +412,9 @@ func (f *fractalView) removeNotification(n *activeNotification) {
 	// Restack remaining notifications.
 	y := 1
 	for _, n := range f.notifications {
-		n.handle.SetOptions(&pitui.OverlayOptions{
-			Width:   pitui.SizeAbs(n.width),
-			Anchor:  pitui.AnchorTopRight,
+		n.handle.SetOptions(&tuist.OverlayOptions{
+			Width:   tuist.SizeAbs(n.width),
+			Anchor:  tuist.AnchorTopRight,
 			OffsetX: -1,
 			OffsetY: y,
 		})
@@ -422,10 +422,10 @@ func (f *fractalView) removeNotification(n *activeNotification) {
 	}
 }
 
-// HandleMouse implements pitui.MouseEnabled — clicking on the fractal
+// HandleMouse implements tuist.MouseEnabled — clicking on the fractal
 // reclaims keyboard focus, which commits any active coordinate edit
 // via the inlineInput's Focusable.SetFocused(false).
-func (f *fractalView) HandleMouse(ctx pitui.EventContext, ev pitui.MouseEvent) bool {
+func (f *fractalView) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) bool {
 	if _, ok := ev.MouseEvent.(uv.MouseClickEvent); ok {
 		ctx.SetFocus(f)
 		return true
@@ -433,7 +433,7 @@ func (f *fractalView) HandleMouse(ctx pitui.EventContext, ev pitui.MouseEvent) b
 	return false
 }
 
-func (f *fractalView) HandleKeyPress(ctx pitui.EventContext, ev uv.KeyPressEvent) bool {
+func (f *fractalView) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	switch {
 	case key.Text == "q" || (key.Code == 'c' && key.Mod == uv.ModCtrl):
@@ -490,7 +490,7 @@ func (f *fractalView) scale() float64 {
 	return 3.0 * math.Exp(-0.003*float64(f.frame))
 }
 
-func (f *fractalView) OnMount(ctx pitui.EventContext) {
+func (f *fractalView) OnMount(ctx tuist.EventContext) {
 	f.benchStart = time.Now()
 
 	// In bench mode, Render() self-advances — no goroutine needed.
@@ -519,7 +519,7 @@ func (f *fractalView) OnMount(ctx pitui.EventContext) {
 	}
 }
 
-func (f *fractalView) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (f *fractalView) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	f.renderCount++
 
 	// In bench mode each render advances the frame and immediately
@@ -586,7 +586,7 @@ func (f *fractalView) Render(ctx pitui.RenderContext) pitui.RenderResult {
 		lines[y] = buf.String()
 	}
 
-	return pitui.RenderResult{Lines: lines}
+	return tuist.RenderResult{Lines: lines}
 }
 
 func mandelbrot(c complex128, maxIter int) int {
@@ -603,7 +603,7 @@ func mandelbrot(c complex128, maxIter int) int {
 // ── Chrome bar ─────────────────────────────────────────────────────────────
 
 type chromeBar struct {
-	pitui.Compo
+	tuist.Compo
 	start   time.Time
 	fractal *fractalView
 	reInput *inlineInput
@@ -619,7 +619,7 @@ func newChromeBar(fractal *fractalView) *chromeBar {
 	return c
 }
 
-func (c *chromeBar) OnMount(ctx pitui.EventContext) {
+func (c *chromeBar) OnMount(ctx tuist.EventContext) {
 	c.start = time.Now()
 	ctx.Attach(c.reInput)
 	ctx.Attach(c.imInput)
@@ -655,7 +655,7 @@ func (c *chromeBar) isEditing() bool {
 	return c.reInput.editing || c.imInput.editing
 }
 
-func (c *chromeBar) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (c *chromeBar) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	f := c.fractal
 	elapsed := time.Since(c.start).Truncate(time.Second)
 	w := ctx.Width
@@ -664,9 +664,9 @@ func (c *chromeBar) Render(ctx pitui.RenderContext) pitui.RenderResult {
 
 	title := topTitleStyle.Render(" ◆ MANDELBROT ")
 	reLabel := topLabelStyle.Render(" re ")
-	reValue := pitui.Mark(c.reInput, c.reInput.RenderInline())
+	reValue := tuist.Mark(c.reInput, c.reInput.RenderInline())
 	imLabel := topLabelStyle.Render("  im ")
-	imValue := pitui.Mark(c.imInput, c.imInput.RenderInline())
+	imValue := tuist.Mark(c.imInput, c.imInput.RenderInline())
 	zoom := topLabelStyle.Render("  zoom ") + topValueStyle.Render(fmt.Sprintf("%.2e", 3.0/f.scale()))
 	iter := topLabelStyle.Render("  iter ") + topValueStyle.Render(fmt.Sprintf("%d", min(64+f.frame/10, 256)))
 	state := ""
@@ -704,7 +704,7 @@ func (c *chromeBar) Render(ctx pitui.RenderContext) pitui.RenderResult {
 	right := botPad - left
 	bot := botBarStyle.Render(strings.Repeat(" ", left)) + controls + botBarStyle.Render(strings.Repeat(" ", right))
 
-	return pitui.RenderResult{
+	return tuist.RenderResult{
 		Lines: []string{top, bot},
 	}
 }
@@ -715,7 +715,7 @@ func (c *chromeBar) Render(ctx pitui.RenderContext) pitui.RenderResult {
 // exercising the TUI's ability to render scrollback and full-screen
 // content simultaneously.
 type frameLog struct {
-	pitui.Compo
+	tuist.Compo
 	lines []string
 }
 
@@ -739,14 +739,14 @@ func (fl *frameLog) appendFrame(frame int, re, im, scale float64) {
 	fl.Update()
 }
 
-func (fl *frameLog) Render(ctx pitui.RenderContext) pitui.RenderResult {
-	return pitui.RenderResult{Lines: fl.lines}
+func (fl *frameLog) Render(ctx tuist.RenderContext) tuist.RenderResult {
+	return tuist.RenderResult{Lines: fl.lines}
 }
 
 // ── Notification bubble ────────────────────────────────────────────────────
 
 type notificationBubble struct {
-	pitui.Compo
+	tuist.Compo
 	msg string
 }
 
@@ -758,7 +758,7 @@ var bubbleStyle = lipgloss.NewStyle().
 	BorderForeground(lipgloss.Color("229")).
 	Padding(0, 1)
 
-func (n *notificationBubble) Render(ctx pitui.RenderContext) pitui.RenderResult {
+func (n *notificationBubble) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	rendered := bubbleStyle.Render(n.msg)
-	return pitui.RenderResult{Lines: strings.Split(rendered, "\n")}
+	return tuist.RenderResult{Lines: strings.Split(rendered, "\n")}
 }

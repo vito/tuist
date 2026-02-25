@@ -1,4 +1,4 @@
-// Package teav2 adapts bubbletea v2 models for use as pitui components.
+// Package teav2 adapts bubbletea v2 models for use as tuist components.
 package teav2
 
 import (
@@ -7,11 +7,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
+	"codeberg.org/vito/tuist"
 )
 
 // Model is the interface for bubbletea v2 models that can be wrapped
-// as pitui components. It matches the common pattern used by bubbles
+// as tuist components. It matches the common pattern used by bubbles
 // (list, table, viewport, etc.) where Update returns the concrete
 // type and View returns a string.
 type Model[T any] interface {
@@ -19,7 +19,7 @@ type Model[T any] interface {
 	View() string
 }
 
-// Wrap wraps a bubbletea v2 model as a pitui Component. It bridges
+// Wrap wraps a bubbletea v2 model as a tuist Component. It bridges
 // the two frameworks:
 //
 //   - Render calls the model's View() and splits into lines
@@ -36,7 +36,7 @@ type Model[T any] interface {
 //	comp := teav2.Wrap(m)
 //	tui.AddChild(comp)
 type Wrap[T Model[T]] struct {
-	pitui.Compo
+	tuist.Compo
 	model    T
 	width    int
 	height   int
@@ -44,7 +44,7 @@ type Wrap[T Model[T]] struct {
 	dispatch func(func()) // set on mount; schedules work on the UI goroutine
 }
 
-// New wraps a bubbletea v2 model as a pitui Component.
+// New wraps a bubbletea v2 model as a tuist Component.
 func New[T Model[T]](model T) *Wrap[T] {
 	b := &Wrap[T]{model: model}
 	b.Update()
@@ -60,7 +60,7 @@ func (b *Wrap[T]) OnQuit(fn func()) {
 
 // OnMount captures the dispatch function for scheduling command results
 // back on the UI goroutine.
-func (b *Wrap[T]) OnMount(ctx pitui.EventContext) {
+func (b *Wrap[T]) OnMount(ctx tuist.EventContext) {
 	b.dispatch = ctx.Dispatch
 }
 
@@ -109,8 +109,8 @@ func (b *Wrap[T]) execCmd(cmd tea.Cmd) {
 	}()
 }
 
-// Render implements pitui.Component.
-func (b *Wrap[T]) Render(ctx pitui.RenderContext) pitui.RenderResult {
+// Render implements tuist.Component.
+func (b *Wrap[T]) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	if ctx.Width != b.width || ctx.Height != b.height {
 		b.width = ctx.Width
 		b.height = ctx.Height
@@ -129,11 +129,11 @@ func (b *Wrap[T]) Render(ctx pitui.RenderContext) pitui.RenderResult {
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-	return pitui.RenderResult{Lines: lines}
+	return tuist.RenderResult{Lines: lines}
 }
 
-// HandleKeyPress implements pitui.Interactive.
-func (b *Wrap[T]) HandleKeyPress(_ pitui.EventContext, ev uv.KeyPressEvent) bool {
+// HandleKeyPress implements tuist.Interactive.
+func (b *Wrap[T]) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool {
 	b.updateModel(tea.KeyPressMsg(ev))
 	return true // bubbletea models consume all key events
 }

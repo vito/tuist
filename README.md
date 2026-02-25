@@ -1,11 +1,11 @@
-# tui
+# tuist
 
 A high-performance TUI framework for Go.
 
 ## Demos
 
 ```sh
-go run codeberg.org/vito/go-tui/demos@latest
+go run codeberg.org/vito/tuist/demos@latest
 ```
 
 ## The Idea

@@ -1,4 +1,4 @@
-package pitui
+package tuist
 
 // OverlayAnchor specifies where an overlay is positioned relative to the
 // terminal viewport.

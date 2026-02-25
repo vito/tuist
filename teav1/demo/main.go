@@ -1,11 +1,11 @@
-// Command demo shows a bubbletea v1 list bubble embedded inside a pitui
-// TUI. The list is a standard bubbles/list component — pitui handles the
+// Command demo shows a bubbletea v1 list bubble embedded inside a tuist
+// TUI. The list is a standard bubbles/list component — tuist handles the
 // terminal, input parsing, and differential rendering while the bubble
 // handles its own state and view.
 //
 // Usage:
 //
-//	go run ./pkg/pitui/teav1/demo
+//	go run ./pkg/tuist/teav1/demo
 package main
 
 import (
@@ -14,13 +14,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
-	"github.com/vito/dang/pkg/pitui/teav1"
+	"codeberg.org/vito/tuist"
+	"codeberg.org/vito/tuist/teav1"
 )
 
 // item implements list.Item and list.DefaultItem.
@@ -39,9 +39,13 @@ type listModel struct {
 	list list.Model
 }
 
-func (m listModel) Init() tea.Cmd                           { return nil }
-func (m listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { var cmd tea.Cmd; m.list, cmd = m.list.Update(msg); return m, cmd }
-func (m listModel) View() string                            { return m.list.View() }
+func (m listModel) Init() tea.Cmd { return nil }
+func (m listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+func (m listModel) View() string { return m.list.View() }
 
 func main() {
 	if err := run(); err != nil {
@@ -51,8 +55,8 @@ func main() {
 }
 
 func run() error {
-	term := pitui.NewProcessTerminal()
-	tui := pitui.New(term)
+	term := tuist.NewProcessTerminal()
+	tui := tuist.New(term)
 
 	// Enable render debug logging.
 	logPath := "/tmp/dang_render_debug.log"
@@ -90,11 +94,11 @@ func run() error {
 	m.Title = "Languages"
 	m.SetShowHelp(true)
 
-	// Wrap the list bubble as a pitui Component.
+	// Wrap the list bubble as a tuist Component.
 	comp := teav1.New(listModel{list: m})
 
 	// Header above the list.
-	header := &staticText{line: dimStyle.Render("  bubbletea v1 list bubble embedded in pitui  ")}
+	header := &staticText{line: dimStyle.Render("  bubbletea v1 list bubble embedded in tuist  ")}
 	header.Update()
 
 	tui.AddChild(header)
@@ -118,8 +122,8 @@ func run() error {
 		return err
 	}
 
-	// Also intercept Ctrl+C at the pitui level.
-	tui.AddInputListener(func(_ pitui.EventContext, ev uv.Event) bool {
+	// Also intercept Ctrl+C at the tuist level.
+	tui.AddInputListener(func(_ tuist.EventContext, ev uv.Event) bool {
 		kp, ok := ev.(uv.KeyPressEvent)
 		if !ok {
 			return false
@@ -159,10 +163,10 @@ func run() error {
 var dimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
 type staticText struct {
-	pitui.Compo
+	tuist.Compo
 	line string
 }
 
-func (s *staticText) Render(ctx pitui.RenderContext) pitui.RenderResult {
-	return pitui.RenderResult{Lines: []string{s.line}}
+func (s *staticText) Render(ctx tuist.RenderContext) tuist.RenderResult {
+	return tuist.RenderResult{Lines: []string{s.line}}
 }

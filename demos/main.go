@@ -1,11 +1,11 @@
-// Command demos is a consolidated launcher for pitui demo programs.
+// Command demos is a consolidated launcher for tuist demo programs.
 //
 // Usage:
 //
-//	go run ./pkg/pitui/demos                # interactive menu
-//	go run ./pkg/pitui/demos keygen         # Mandelbrot fractal
-//	go run ./pkg/pitui/demos grid           # interactive color grid
-//	go run ./pkg/pitui/demos logs           # scrollable log stress test
+//	go run ./pkg/tuist/demos                # interactive menu
+//	go run ./pkg/tuist/demos keygen         # Mandelbrot fractal
+//	go run ./pkg/tuist/demos grid           # interactive color grid
+//	go run ./pkg/tuist/demos logs           # scrollable log stress test
 package main
 
 import (
@@ -18,13 +18,13 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/vito/dang/pkg/pitui"
+	"codeberg.org/vito/tuist"
 )
 
 // sharedTerm is the single ProcessTerminal for the process. It is created
 // once and reused across the selector and whichever demo is launched so
 // that only one goroutine ever reads stdin.
-var sharedTerm = pitui.NewProcessTerminal()
+var sharedTerm = tuist.NewProcessTerminal()
 
 type demoEntry struct {
 	name string
@@ -61,7 +61,7 @@ func main() {
 }
 
 func runSelector() int {
-	tui := pitui.New(sharedTerm)
+	tui := tuist.New(sharedTerm)
 
 	menu := &selectorView{
 		done: make(chan struct{}),
@@ -95,13 +95,13 @@ func runSelector() int {
 // ── Selector TUI ───────────────────────────────────────────────────────────
 
 type selectorView struct {
-	pitui.Compo
+	tuist.Compo
 	cursor int
 	sel    int
 	done   chan struct{}
 }
 
-func (s *selectorView) HandleKeyPress(_ pitui.EventContext, ev uv.KeyPressEvent) bool {
+func (s *selectorView) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	switch {
 	case key.Text == "q" || (key.Code == 'c' && key.Mod == uv.ModCtrl):
@@ -136,10 +136,10 @@ var (
 	selHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 )
 
-func (s *selectorView) Render(_ pitui.RenderContext) pitui.RenderResult {
+func (s *selectorView) Render(_ tuist.RenderContext) tuist.RenderResult {
 	var lines []string
 	lines = append(lines, "")
-	lines = append(lines, selTitleStyle.Render("  ◆ pitui demos"))
+	lines = append(lines, selTitleStyle.Render("  ◆ tuist demos"))
 	lines = append(lines, "")
 
 	for i, d := range demoList {
@@ -157,5 +157,5 @@ func (s *selectorView) Render(_ pitui.RenderContext) pitui.RenderResult {
 	hints := strings.Join([]string{"↑↓/jk navigate", "enter select", "q quit"}, "  •  ")
 	lines = append(lines, selHintStyle.Render("  "+hints))
 
-	return pitui.RenderResult{Lines: lines}
+	return tuist.RenderResult{Lines: lines}
 }

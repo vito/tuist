@@ -1,4 +1,4 @@
-package pitui
+package tuist
 
 import (
 	"context"
@@ -244,8 +244,8 @@ func markerOf(comp Component) string {
 // Mark yourself.
 //
 //	// In parent's Render:
-//	re := pitui.Mark(c.reInput, c.reInput.RenderInline())
-//	im := pitui.Mark(c.imInput, c.imInput.RenderInline())
+//	re := tuist.Mark(c.reInput, c.reInput.RenderInline())
+//	im := tuist.Mark(c.imInput, c.imInput.RenderInline())
 //	top := title + " re " + re + "  im " + im
 func Mark(comp Component, content string) string {
 	m := markerOf(comp)
@@ -272,7 +272,7 @@ func markLines(comp Component, lines []string) []string {
 // components. Embed it in your component struct:
 //
 //	type MyWidget struct {
-//	    pitui.Compo
+//	    tuist.Compo
 //	    // ... your fields ...
 //	}
 //
@@ -372,7 +372,7 @@ func setComponentParent(comp Component, parent *Compo) {
 // Use this instead of calling child.Render(ctx) directly when your
 // component wraps another component without using Container or Slot:
 //
-//	func (w *MyWrapper) Render(ctx pitui.RenderContext) pitui.RenderResult {
+//	func (w *MyWrapper) Render(ctx tuist.RenderContext) tuist.RenderResult {
 //	    return w.RenderChild(w.inner, ctx)
 //	}
 func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {

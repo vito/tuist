@@ -1,4 +1,4 @@
-package pitui
+package tuist
 
 import "golang.org/x/sys/unix"
 
