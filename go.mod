@@ -7,7 +7,6 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20260223171050-89c142e4aa73
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/stretchr/testify v1.11.1
-	github.com/vito/dang v0.0.0-20260224013246-eab4c647014c
 	golang.org/x/sys v0.41.0
 	gotest.tools/v3 v3.5.2
 )
