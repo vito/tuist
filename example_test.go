@@ -2,90 +2,88 @@ package tuist_test
 
 import (
 	"fmt"
-	"strings"
-	"time"
 
+	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
 	"codeberg.org/vito/tuist"
 )
 
-// Counter is a simple interactive component that displays a count and
-// increments it when any key is pressed.
+var (
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	countStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86"))
+	hintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	keyStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252"))
+)
+
+// Label is a static single-line component.
+type Label struct {
+	tuist.Compo
+	Text string
+}
+
+func (l *Label) Render(ctx tuist.RenderContext) tuist.RenderResult {
+	line := l.Text
+	if tuist.VisibleWidth(line) > ctx.Width {
+		line = tuist.Truncate(line, ctx.Width, "…")
+	}
+	return tuist.RenderResult{Lines: []string{line}}
+}
+
+// Counter increments on each key press, and 'q' quits.
 type Counter struct {
 	tuist.Compo
 	Count   int
+	quit    func()
 	focused bool
 }
 
 func (c *Counter) Render(ctx tuist.RenderContext) tuist.RenderResult {
-	line := fmt.Sprintf("Count: %d (press any key)", c.Count)
+	line := countStyle.Render(fmt.Sprintf("%d", c.Count))
 	if tuist.VisibleWidth(line) > ctx.Width {
-		line = tuist.Truncate(line, ctx.Width, "...")
+		line = tuist.Truncate(line, ctx.Width, "…")
 	}
-	var cursor *tuist.CursorPos
-	if c.focused {
-		cursor = &tuist.CursorPos{Row: 0, Col: tuist.VisibleWidth(line)}
-	}
-	return tuist.RenderResult{
-		Lines:  []string{line},
-		Cursor: cursor,
-	}
+	return tuist.RenderResult{Lines: []string{line}}
 }
 
+var _ tuist.Interactive = (*Counter)(nil)
+
 func (c *Counter) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool {
+	if ev.Text == "q" {
+		c.quit()
+		return true
+	}
 	c.Count++
 	c.Update()
 	return true
 }
 
+var _ tuist.Focusable = (*Counter)(nil)
+
 func (c *Counter) SetFocused(_ tuist.EventContext, focused bool) { c.focused = focused }
 
-// Banner is a static component that renders a multi-line banner.
-type Banner struct {
-	tuist.Compo
-	Text string
-}
-
-func (b *Banner) Render(ctx tuist.RenderContext) tuist.RenderResult {
-	var lines []string
-	for line := range strings.SplitSeq(b.Text, "\n") {
-		if tuist.VisibleWidth(line) > ctx.Width {
-			line = tuist.Truncate(line, ctx.Width, "")
-		}
-		lines = append(lines, line)
-	}
-	return tuist.RenderResult{Lines: lines}
-}
-
 func Example() {
-	// This example shows the basic wiring. In a real app you'd use
-	// NewProcessTerminal() and handle Ctrl-C properly.
-	_ = func() {
-		term := tuist.NewProcessTerminal()
-		tui := tuist.New(term)
+	term := tuist.NewProcessTerminal()
+	tui := tuist.New(term)
 
-		// Start the TUI.
-		if err := tui.Start(); err != nil {
-			panic(err)
-		}
-		defer tui.Stop()
-
-		// Dispatch component setup to the UI goroutine.
-		// All component state mutations (AddChild, SetFocus, etc.)
-		// must happen on the UI goroutine — either inside a Dispatch
-		// callback or inside an event handler (HandleKeyPress, etc.).
-		counter := &Counter{}
-		tui.Dispatch(func() {
-			tui.AddChild(&Banner{Text: "=== My App ==="})
-			tui.AddChild(counter)
-			tui.SetFocus(counter)
-		})
-
-		// In a real app, you'd block on a signal or channel.
-		time.Sleep(10 * time.Second)
+	if err := tui.Start(); err != nil {
+		panic(err)
 	}
+	defer tui.Stop()
 
-	fmt.Println("ok")
-	// Output: ok
+	done := make(chan struct{})
+	counter := &Counter{quit: func() { close(done) }}
+
+	// All component mutations must happen on the UI goroutine.
+	tui.Dispatch(func() {
+		tui.AddChild(&Label{Text: titleStyle.Render("● Counter")})
+		tui.AddChild(counter)
+		tui.AddChild(&Label{
+			Text: keyStyle.Render("any key") + hintStyle.Render(" increment  ") +
+				keyStyle.Render("q") + hintStyle.Render(" quit"),
+		})
+		tui.SetFocus(counter)
+	})
+
+	<-done
 }
