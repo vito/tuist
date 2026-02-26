@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"reflect"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -252,10 +253,6 @@ func Mark(comp Component, content string) string {
 	return m + content + m
 }
 
-// markLines wraps a component's rendered lines with zone markers.
-// The start marker is prepended to the first line; the end marker
-// is appended to the last line. Returns a new slice (the cache is
-// not modified).
 func markLines(comp Component, lines []string) []string {
 	if len(lines) == 0 {
 		return lines
@@ -306,6 +303,16 @@ type Compo struct {
 	// The alternate buffer is offered to Render via ctx.Recycle.
 	lineBufs [2][]string
 	bufIdx   int
+
+	// Inline children rendered via RenderChild. Populated during Render,
+	// cleared at the start of each cache-miss re-render. Used by
+	// collectMarkers to discover zone markers for positional mouse
+	// dispatch, and by dismountTree for lifecycle cleanup.
+	//
+	// MouseEnabled inline children are auto-mounted on first encounter
+	// so they participate in mouse tracking and zone dispatch without
+	// requiring explicit Attach calls.
+	renderChildren []Component
 
 	// Lifecycle — managed by the framework during mount/dismount.
 	// Components never access these directly; they receive EventContext
@@ -366,8 +373,11 @@ func setComponentParent(comp Component, parent *Compo) {
 // framework's render cache. It also wires the child's parent pointer so
 // that Update() on the child propagates upward through this component.
 //
-// Note: RenderChild does NOT trigger mount/dismount lifecycle hooks.
-// For lifecycle support, use Container or Slot instead.
+// MouseEnabled children are automatically mounted into the TUI (if the
+// parent is mounted) so they participate in zone-based positional mouse
+// dispatch. Their output is wrapped with zone markers. When the parent
+// is re-rendered without calling RenderChild for a previously rendered
+// child, that child is dismounted automatically.
 //
 // Use this instead of calling child.Render(ctx) directly when your
 // component wraps another component without using Container or Slot:
@@ -377,6 +387,29 @@ func setComponentParent(comp Component, parent *Compo) {
 //	}
 func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 	child.compo().parent = c
+	c.renderChildren = append(c.renderChildren, child)
+
+	// Auto-mount MouseEnabled inline children for zone dispatch.
+	if _, ok := child.(MouseEnabled); ok && c.tui != nil {
+		cp := child.compo()
+		if cp.tui == nil {
+			cp.self = child
+			cp.tui = c.tui
+			if c.mountCtx != nil {
+				cp.mountCtx, cp.mountCancel = context.WithCancel(c.mountCtx)
+			}
+			c.tui.EnableMouse()
+			if m, ok := child.(Mounter); ok {
+				ectx := EventContext{
+					Context: cp.mountCtx,
+					tui:     c.tui,
+					source:  child,
+				}
+				m.OnMount(ectx)
+			}
+		}
+	}
+
 	r := renderComponent(child, ctx)
 	if _, ok := child.(MouseEnabled); ok {
 		r.Lines = markLines(child, r.Lines)
@@ -419,6 +452,11 @@ func renderComponent(ch Component, ctx RenderContext) RenderResult {
 	// avoid allocating a fresh slice each frame.
 	cp.bufIdx ^= 1
 	ctx.Recycle = cp.lineBufs[cp.bufIdx][:0]
+
+	// Save previous render children for orphan cleanup after Render.
+	// Nil out (rather than [:0]) so Render's appends don't alias.
+	prevRenderChildren := cp.renderChildren
+	cp.renderChildren = nil
 	var r RenderResult
 	if ctx.componentStats != nil {
 		start := time.Now()
@@ -436,6 +474,19 @@ func renderComponent(ch Component, ctx RenderContext) RenderResult {
 	cp.lineBufs[cp.bufIdx] = r.Lines
 	cp.cache = &renderCache{result: r, width: ctx.Width}
 	cp.renderedGen = gen
+
+	// Dismount render children that were present last frame but not this
+	// frame (the parent's Render stopped calling RenderChild for them).
+	for _, prev := range prevRenderChildren {
+		if prev.compo().tui == nil {
+			continue // was never auto-mounted
+		}
+		found := slices.Contains(cp.renderChildren, prev)
+		if !found {
+			dismountTree(prev)
+		}
+	}
+
 	return r
 }
 
@@ -616,6 +667,15 @@ func dismountTree(comp Component) {
 	}
 
 	cp := comp.compo()
+
+	// Dismount inline children from RenderChild.
+	for _, child := range cp.renderChildren {
+		if child.compo().tui != nil {
+			dismountTree(child)
+		}
+	}
+	cp.renderChildren = nil
+
 	if cp.mountCancel != nil {
 		cp.mountCancel()
 	}

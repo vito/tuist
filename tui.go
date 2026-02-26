@@ -828,6 +828,10 @@ func (t *TUI) collectMarkers(comp Component, m map[int64]Component) {
 			t.collectMarkers(child, m)
 		}
 	}
+	// Walk inline children rendered via RenderChild.
+	for _, child := range cp.renderChildren {
+		t.collectMarkers(child, m)
+	}
 }
 
 // dispatchMousePositional finds the deepest (last-scanned) MouseEnabled
