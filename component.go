@@ -373,11 +373,15 @@ func setComponentParent(comp Component, parent *Compo) {
 // framework's render cache. It also wires the child's parent pointer so
 // that Update() on the child propagates upward through this component.
 //
-// MouseEnabled children are automatically mounted into the TUI (if the
-// parent is mounted) so they participate in zone-based positional mouse
-// dispatch. Their output is wrapped with zone markers. When the parent
-// is re-rendered without calling RenderChild for a previously rendered
-// child, that child is dismounted automatically.
+// Children are automatically mounted into the TUI when the parent is
+// mounted. This fires [Mounter.OnMount] lifecycle hooks and wires the
+// component into the tree so [Compo.Update] propagation reaches
+// [TUI.RequestRender]. When the parent is re-rendered without calling
+// RenderChild for a previously rendered child, that child is
+// dismounted automatically.
+//
+// MouseEnabled children additionally have their output wrapped with
+// zone markers for positional mouse dispatch.
 //
 // Use this instead of calling child.Render(ctx) directly when your
 // component wraps another component without using Container or Slot:
@@ -389,8 +393,9 @@ func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 	child.compo().parent = c
 	c.renderChildren = append(c.renderChildren, child)
 
-	// Auto-mount MouseEnabled inline children for zone dispatch.
-	if _, ok := child.(MouseEnabled); ok && c.tui != nil {
+	// Auto-mount inline children so they get lifecycle hooks and
+	// proper Update() propagation through the TUI.
+	if c.tui != nil {
 		cp := child.compo()
 		if cp.tui == nil {
 			cp.self = child
@@ -398,7 +403,9 @@ func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 			if c.mountCtx != nil {
 				cp.mountCtx, cp.mountCancel = context.WithCancel(c.mountCtx)
 			}
-			c.tui.EnableMouse()
+			if _, ok := child.(MouseEnabled); ok {
+				c.tui.EnableMouse()
+			}
 			if m, ok := child.(Mounter); ok {
 				ectx := EventContext{
 					Context: cp.mountCtx,
