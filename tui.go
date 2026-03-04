@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -552,16 +554,25 @@ func (t *TUI) Stop() {
 	t.terminal.Stop()
 }
 
-// SetInputPassthrough redirects terminal input to w instead of the
-// normal key/mouse event handler. Use this before running a background
-// command that needs stdin: create an [io.Pipe], pass the writer here,
-// and give the reader to the command as its stdin.
+// Exec suspends the TUI and runs fn with exclusive access to the
+// terminal. Input from stdin is piped to in; out and errOut are
+// connected to stdout and stderr respectively. When fn returns, the
+// TUI is automatically restarted.
 //
-// The terminal's single reader goroutine remains the sole consumer of
-// os.Stdin, avoiding races. Call [TUI.Start] to restore normal input
-// handling.
-func (t *TUI) SetInputPassthrough(w io.Writer) {
-	t.terminal.SetInputPassthrough(w)
+// This is the equivalent of bubbletea's ExecCommand. The terminal's
+// single reader goroutine remains the sole consumer of os.Stdin;
+// fn reads from a pipe that receives the forwarded bytes.
+func (t *TUI) Exec(fn func(in io.Reader, out io.Writer, errOut io.Writer) error) error {
+	t.Stop()
+
+	pr, pw := io.Pipe()
+	t.terminal.SetInputPassthrough(pw)
+
+	err := fn(pr, os.Stdout, os.Stderr)
+
+	pw.Close()
+	t.terminal.SetInputPassthrough(nil)
+	return errors.Join(err, t.Start())
 }
 
 // RequestRender schedules a render on the next iteration. If repaint is
