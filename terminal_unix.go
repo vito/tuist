@@ -25,6 +25,11 @@ type ProcessTerminal struct {
 	stopCancel  context.CancelFunc
 	stopCtx     context.Context
 
+	// stdinDup is a duplicated stdin fd used for reading. Closing it
+	// unblocks the reader goroutine without affecting os.Stdin, so
+	// background commands can use stdin exclusively.
+	stdinDup *os.File
+
 	sizeMu sync.RWMutex
 	cols   int
 	rows   int
@@ -73,13 +78,21 @@ func (t *ProcessTerminal) Start(onInput func([]byte), onResize func()) error {
 	// The response arrives as input and is decoded by ultraviolet.
 	t.WriteString(ansi.RequestKittyKeyboard)
 
-	// Read stdin in a goroutine.
+	// Duplicate stdin so we can close the dup to unblock the reader
+	// on Stop(), leaving os.Stdin available for background commands.
+	dupFd, err := unix.Dup(int(os.Stdin.Fd()))
+	if err != nil {
+		return fmt.Errorf("dup stdin: %w", err)
+	}
+	t.stdinDup = os.NewFile(uintptr(dupFd), "stdin-dup")
+
+	// Read from the duplicated fd in a goroutine.
+	stdinDup := t.stdinDup
 	go func() {
 		buf := make([]byte, 4096)
 		for {
-			n, err := os.Stdin.Read(buf)
+			n, err := stdinDup.Read(buf)
 			if n > 0 {
-				// Copy so the callback can keep the slice.
 				data := make([]byte, n)
 				copy(data, buf[:n])
 				t.onInput(data)
@@ -122,6 +135,11 @@ func (t *ProcessTerminal) Stop() {
 	}
 	if t.sigCh != nil {
 		signal.Stop(t.sigCh)
+	}
+	// Close the duplicated stdin fd to unblock the reader goroutine.
+	if t.stdinDup != nil {
+		t.stdinDup.Close()
+		t.stdinDup = nil
 	}
 	if t.origTermios != nil {
 		fd := int(os.Stdin.Fd())
