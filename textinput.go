@@ -64,6 +64,7 @@ func (t *TextInput) Value() string { return string(t.value) }
 func (t *TextInput) SetValue(s string) {
 	t.value = []rune(s)
 	t.cursor = len(t.value)
+	t.Update()
 }
 
 // CursorEnd moves the cursor to the end of the input.
