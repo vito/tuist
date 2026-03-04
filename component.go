@@ -314,6 +314,13 @@ type Compo struct {
 	// requiring explicit Attach calls.
 	renderChildren []Component
 
+	// componentStats is propagated from parent to child during rendering
+	// so that stats collection works across package boundaries (where
+	// the unexported RenderContext field would be lost). Set by
+	// renderComponent before calling Render, inherited by children
+	// via RenderChild.
+	componentStats *[]ComponentStat
+
 	// Lifecycle — managed by the framework during mount/dismount.
 	// Components never access these directly; they receive EventContext
 	// through handlers and lifecycle hooks.
@@ -391,6 +398,7 @@ func setComponentParent(comp Component, parent *Compo) {
 //	}
 func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 	child.compo().parent = c
+	child.compo().componentStats = c.componentStats
 	c.renderChildren = append(c.renderChildren, child)
 
 	// Auto-mount inline children so they get lifecycle hooks and
@@ -435,11 +443,21 @@ func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 func renderComponent(ch Component, ctx RenderContext) RenderResult {
 	cp := ch.compo()
 
+	// Resolve stats collector: prefer ctx (fresh each frame from the TUI),
+	// fall back to the Compo's (propagated from parent via RenderChild,
+	// for cross-package calls where ctx loses the unexported field).
+	stats := ctx.componentStats
+	if stats == nil {
+		stats = cp.componentStats
+	}
+	// Store it so this component's RenderChild calls can propagate it.
+	cp.componentStats = stats
+
 	gen := cp.generation.Load()
 	if cp.cache != nil && gen == cp.renderedGen && cp.cache.width == ctx.Width {
 		// Cache hit — skip Render entirely.
-		if ctx.componentStats != nil {
-			*ctx.componentStats = append(*ctx.componentStats, ComponentStat{
+		if stats != nil {
+			*stats = append(*stats, ComponentStat{
 				Name:   componentName(ch),
 				Lines:  len(cp.cache.result.Lines),
 				Cached: true,
@@ -465,11 +483,11 @@ func renderComponent(ch Component, ctx RenderContext) RenderResult {
 	prevRenderChildren := cp.renderChildren
 	cp.renderChildren = nil
 	var r RenderResult
-	if ctx.componentStats != nil {
+	if stats != nil {
 		start := time.Now()
 		r = ch.Render(ctx)
 		elapsed := time.Since(start)
-		*ctx.componentStats = append(*ctx.componentStats, ComponentStat{
+		*stats = append(*stats, ComponentStat{
 			Name:     componentName(ch),
 			RenderUs: elapsed.Microseconds(),
 			Lines:    len(r.Lines),
