@@ -47,3 +47,13 @@ type Terminal interface {
 	// ShowCursor shows the hardware cursor.
 	ShowCursor()
 }
+
+// inputCallbackWriter adapts an onInput callback to io.Writer.
+type inputCallbackWriter struct {
+	fn func([]byte)
+}
+
+func (w inputCallbackWriter) Write(p []byte) (int, error) {
+	w.fn(p)
+	return len(p), nil
+}

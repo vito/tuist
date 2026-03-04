@@ -129,16 +129,6 @@ func (t *ProcessTerminal) readStdin() {
 	}
 }
 
-// inputCallbackWriter adapts an onInput callback to io.Writer.
-type inputCallbackWriter struct {
-	fn func([]byte)
-}
-
-func (w inputCallbackWriter) Write(p []byte) (int, error) {
-	w.fn(p)
-	return len(p), nil
-}
-
 // SetInputPassthrough redirects stdin to the given writer instead of
 // the normal input handler. Pass nil to discard input (e.g. when the
 // terminal is stopped). Call with the onInput wrapper to resume normal

@@ -524,6 +524,10 @@ func (t *TUI) Start() error {
 
 // Stop ends the TUI event loop and restores the terminal.
 func (t *TUI) Stop() {
+	t.stop(false)
+}
+
+func (t *TUI) stop(clear bool) {
 	// Signal the event loop to stop and wait for it to finish any
 	// in-progress work.
 	t.stopCancel()
@@ -541,11 +545,18 @@ func (t *TUI) Stop() {
 		t.mouseRefCount = 0
 	}
 
-	// Move cursor past content so the shell prompt appears below.
 	if len(prev) > 0 {
-		target := len(prev)
-		t.terminal.WriteString(cursorVertical(target - hcr))
-		t.terminal.WriteString("\r\n")
+		if clear {
+			// Move cursor to the top of the TUI output and erase
+			// everything below so the executed command starts clean.
+			t.terminal.WriteString(cursorVertical(-hcr))
+			t.terminal.WriteString("\r\x1b[J")
+		} else {
+			// Move cursor past content so the shell prompt appears below.
+			target := len(prev)
+			t.terminal.WriteString(cursorVertical(target - hcr))
+			t.terminal.WriteString("\r\n")
+		}
 	}
 
 	// Ensure cursor is at column 0 for clean shell handoff.
@@ -563,10 +574,7 @@ func (t *TUI) Stop() {
 // single reader goroutine remains the sole consumer of os.Stdin;
 // fn reads from a pipe that receives the forwarded bytes.
 func (t *TUI) Exec(fn func(in io.Reader, out io.Writer, errOut io.Writer) error) error {
-	t.Stop()
-
-	// Clear the screen so the executed command starts fresh.
-	t.terminal.WriteString("\x1b[2J\x1b[H")
+	t.stop(true)
 
 	pr, pw := io.Pipe()
 	t.terminal.SetInputPassthrough(pw)
