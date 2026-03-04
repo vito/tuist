@@ -565,6 +565,9 @@ func (t *TUI) Stop() {
 func (t *TUI) Exec(fn func(in io.Reader, out io.Writer, errOut io.Writer) error) error {
 	t.Stop()
 
+	// Clear the screen so the executed command starts fresh.
+	t.terminal.WriteString("\x1b[2J\x1b[H")
+
 	pr, pw := io.Pipe()
 	t.terminal.SetInputPassthrough(pw)
 
