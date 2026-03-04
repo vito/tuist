@@ -3,7 +3,7 @@ module codeberg.org/vito/tuist/teav1
 go 1.25.6
 
 require (
-	codeberg.org/vito/tuist v0.0.0-00010101000000-000000000000
+	codeberg.org/vito/tuist v0.0.0-20260304030535-360c566d700c
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	charm.land/lipgloss/v2 v2.0.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/colorprofile v0.4.2 // indirect
@@ -36,7 +37,5 @@ require (
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )
-
-replace codeberg.org/vito/tuist => ../
 
 exclude github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd

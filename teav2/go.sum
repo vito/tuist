@@ -4,6 +4,8 @@ charm.land/bubbletea/v2 v2.0.0-rc.2 h1:TdTbUOFzbufDJmSz/3gomL6q+fR6HwfY+P13hXQzD
 charm.land/bubbletea/v2 v2.0.0-rc.2/go.mod h1:IXFmnCnMLTWw/KQ9rEatSYqbAPAYi8kA3Yqwa1SFnLk=
 charm.land/lipgloss/v2 v2.0.0 h1:sd8N/B3x892oiOjFfBQdXBQp3cAkvjGaU5TvVZC3ivo=
 charm.land/lipgloss/v2 v2.0.0/go.mod h1:w6SnmsBFBmEFBodiEDurGS/sdUY/u1+v72DqUzc6J14=
+codeberg.org/vito/tuist v0.0.0-20260304030535-360c566d700c h1:A43+d7LkTNG22DAVL39T95dTJawy7nKMFOYQEOjANQs=
+codeberg.org/vito/tuist v0.0.0-20260304030535-360c566d700c/go.mod h1:rUVavdvuBRlxvWnuGNHDzk9hrCW/9GvTL6cn1IycwIM=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-udiff v0.4.0 h1:TKnLPh7IbnizJIBKFWa9mKayRUBQ9Kh1BPCk6w2PnYM=

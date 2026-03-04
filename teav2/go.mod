@@ -6,7 +6,7 @@ require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2
 	charm.land/lipgloss/v2 v2.0.0
-	codeberg.org/vito/tuist v0.0.0-00010101000000-000000000000
+	codeberg.org/vito/tuist v0.0.0-20260304030535-360c566d700c
 	github.com/charmbracelet/ultraviolet v0.0.0-20260223171050-89c142e4aa73
 )
 
@@ -28,5 +28,3 @@ require (
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 )
-
-replace codeberg.org/vito/tuist => ../
