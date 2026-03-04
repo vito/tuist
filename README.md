@@ -5,7 +5,7 @@ A high-performance TUI framework for Go.
 ## Demos
 
 ```sh
-go run codeberg.org/vito/tuist/demos@latest
+go run github.com/vito/tuist/demos@latest
 ```
 
 ## The Idea

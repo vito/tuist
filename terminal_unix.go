@@ -5,6 +5,7 @@ package tuist
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -25,10 +26,13 @@ type ProcessTerminal struct {
 	stopCancel  context.CancelFunc
 	stopCtx     context.Context
 
-	// stdinDup is a duplicated stdin fd used for reading. Closing it
-	// unblocks the reader goroutine without affecting os.Stdin, so
-	// background commands can use stdin exclusively.
-	stdinDup *os.File
+	// inputMu protects inputSink. The stdin reader goroutine holds
+	// this lock while writing to the sink, so swapping sinks is safe.
+	inputMu   sync.Mutex
+	inputSink io.Writer // nil = discard; set to onInput wrapper or passthrough
+
+	// readerOnce ensures only one stdin reader goroutine exists.
+	readerOnce sync.Once
 
 	sizeMu sync.RWMutex
 	cols   int
@@ -70,38 +74,18 @@ func (t *ProcessTerminal) Start(onInput func([]byte), onResize func()) error {
 	t.WriteString("\x1b[?2004h")
 
 	// Enable Kitty keyboard protocol (disambiguate escape codes).
-	// This allows detecting Shift+Enter and other modified keys.
-	// Uses the same approach as BubbleTea v2: set mode with flag 1
-	// (disambiguate) and mode 1 (set given flags, unset others).
 	t.WriteString(ansi.KittyKeyboard(ansi.KittyDisambiguateEscapeCodes, 1))
-	// Query the terminal for its keyboard enhancement support.
-	// The response arrives as input and is decoded by ultraviolet.
 	t.WriteString(ansi.RequestKittyKeyboard)
 
-	// Duplicate stdin so we can close the dup to unblock the reader
-	// on Stop(), leaving os.Stdin available for background commands.
-	dupFd, err := unix.Dup(int(os.Stdin.Fd()))
-	if err != nil {
-		return fmt.Errorf("dup stdin: %w", err)
-	}
-	t.stdinDup = os.NewFile(uintptr(dupFd), "stdin-dup")
+	// Direct input to the onInput callback.
+	t.inputMu.Lock()
+	t.inputSink = inputCallbackWriter{t.onInput}
+	t.inputMu.Unlock()
 
-	// Read from the duplicated fd in a goroutine.
-	stdinDup := t.stdinDup
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := stdinDup.Read(buf)
-			if n > 0 {
-				data := make([]byte, n)
-				copy(data, buf[:n])
-				t.onInput(data)
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
+	// Start the single stdin reader goroutine (only once per process).
+	t.readerOnce.Do(func() {
+		go t.readStdin()
+	})
 
 	// Listen for SIGWINCH.
 	t.sigCh = make(chan os.Signal, 1)
@@ -123,6 +107,48 @@ func (t *ProcessTerminal) Start(onInput func([]byte), onResize func()) error {
 	return nil
 }
 
+// readStdin reads from os.Stdin forever and writes to the current inputSink.
+// This goroutine lives for the process lifetime.
+func (t *ProcessTerminal) readStdin() {
+	buf := make([]byte, 4096)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if n > 0 {
+			data := make([]byte, n)
+			copy(data, buf[:n])
+			t.inputMu.Lock()
+			sink := t.inputSink
+			t.inputMu.Unlock()
+			if sink != nil {
+				sink.Write(data) //nolint:errcheck
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// inputCallbackWriter adapts an onInput callback to io.Writer.
+type inputCallbackWriter struct {
+	fn func([]byte)
+}
+
+func (w inputCallbackWriter) Write(p []byte) (int, error) {
+	w.fn(p)
+	return len(p), nil
+}
+
+// SetInputPassthrough redirects stdin to the given writer instead of
+// the normal input handler. Pass nil to discard input (e.g. when the
+// terminal is stopped). Call with the onInput wrapper to resume normal
+// input handling (done automatically by Start).
+func (t *ProcessTerminal) SetInputPassthrough(w io.Writer) {
+	t.inputMu.Lock()
+	t.inputSink = w
+	t.inputMu.Unlock()
+}
+
 func (t *ProcessTerminal) Stop() {
 	// Disable Kitty keyboard protocol.
 	t.WriteString(ansi.KittyKeyboard(0, 1))
@@ -130,16 +156,16 @@ func (t *ProcessTerminal) Stop() {
 	// Disable bracketed paste.
 	t.WriteString("\x1b[?2004l")
 
+	// Stop directing input to the TUI.
+	t.inputMu.Lock()
+	t.inputSink = nil
+	t.inputMu.Unlock()
+
 	if t.stopCancel != nil {
 		t.stopCancel()
 	}
 	if t.sigCh != nil {
 		signal.Stop(t.sigCh)
-	}
-	// Close the duplicated stdin fd to unblock the reader goroutine.
-	if t.stdinDup != nil {
-		t.stdinDup.Close()
-		t.stdinDup = nil
 	}
 	if t.origTermios != nil {
 		fd := int(os.Stdin.Fd())

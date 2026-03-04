@@ -18,7 +18,7 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"codeberg.org/vito/tuist"
+	"github.com/vito/tuist"
 )
 
 const maxCells = 400

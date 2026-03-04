@@ -18,7 +18,7 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"codeberg.org/vito/tuist"
+	"github.com/vito/tuist"
 )
 
 // sharedTerm is the single ProcessTerminal for the process. It is created

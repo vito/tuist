@@ -2,6 +2,7 @@ package tuist
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -29,9 +30,10 @@ func (m *mockTerminal) Start(onInput func([]byte), onResize func()) error {
 	m.onResize = onResize
 	return nil
 }
-func (m *mockTerminal) Stop()                {}
-func (m *mockTerminal) Write(p []byte)       { m.written.Write(p) }
-func (m *mockTerminal) WriteString(s string) { m.written.WriteString(s) }
+func (m *mockTerminal) Stop()                    {}
+func (m *mockTerminal) SetInputPassthrough(io.Writer) {}
+func (m *mockTerminal) Write(p []byte)               { m.written.Write(p) }
+func (m *mockTerminal) WriteString(s string)         { m.written.WriteString(s) }
 func (m *mockTerminal) Columns() int         { return m.cols }
 func (m *mockTerminal) Rows() int            { return m.rows }
 func (m *mockTerminal) HideCursor()          { m.written.WriteString("\x1b[?25l") }

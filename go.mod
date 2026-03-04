@@ -1,4 +1,4 @@
-module codeberg.org/vito/tuist
+module github.com/vito/tuist
 
 go 1.25.6
 

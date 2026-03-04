@@ -3,7 +3,7 @@ package tuist_test
 import (
 	"strings"
 
-	"codeberg.org/vito/tuist"
+	"github.com/vito/tuist"
 )
 
 // ExampleCompletionMenu demonstrates how to wire up a CompletionMenu with

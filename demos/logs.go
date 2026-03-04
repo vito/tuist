@@ -21,7 +21,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"codeberg.org/vito/tuist"
+	"github.com/vito/tuist"
 )
 
 func logsMain() {

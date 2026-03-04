@@ -19,8 +19,8 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"codeberg.org/vito/tuist"
-	"codeberg.org/vito/tuist/teav2"
+	"github.com/vito/tuist"
+	"github.com/vito/tuist/teav2"
 )
 
 func main() {

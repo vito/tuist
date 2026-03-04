@@ -3,6 +3,7 @@ package tuist
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 
@@ -20,6 +21,14 @@ type ProcessTerminal struct {
 	onResize    func()
 	stopCancel  context.CancelFunc
 	stopCtx     context.Context
+
+	// inputMu protects inputSink. The stdin reader goroutine holds
+	// this lock while writing to the sink, so swapping sinks is safe.
+	inputMu   sync.Mutex
+	inputSink io.Writer // nil = discard; set to onInput wrapper or passthrough
+
+	// readerOnce ensures only one stdin reader goroutine exists.
+	readerOnce sync.Once
 
 	sizeMu sync.RWMutex
 	cols   int
@@ -70,21 +79,15 @@ func (t *ProcessTerminal) Start(onInput func([]byte), onResize func()) error {
 	t.WriteString(ansi.KittyKeyboard(ansi.KittyDisambiguateEscapeCodes, 1))
 	t.WriteString(ansi.RequestKittyKeyboard)
 
-	// Read stdin in a goroutine.
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := os.Stdin.Read(buf)
-			if n > 0 {
-				data := make([]byte, n)
-				copy(data, buf[:n])
-				t.onInput(data)
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
+	// Direct input to the onInput callback.
+	t.inputMu.Lock()
+	t.inputSink = inputCallbackWriter{t.onInput}
+	t.inputMu.Unlock()
+
+	// Start the single stdin reader goroutine (only once per process).
+	t.readerOnce.Do(func() {
+		go t.readStdin()
+	})
 
 	// Poll for resize events using console input events.
 	go func() {
@@ -108,12 +111,49 @@ func (t *ProcessTerminal) Start(onInput func([]byte), onResize func()) error {
 	return nil
 }
 
+// readStdin reads from os.Stdin forever and writes to the current inputSink.
+// This goroutine lives for the process lifetime.
+func (t *ProcessTerminal) readStdin() {
+	buf := make([]byte, 4096)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if n > 0 {
+			data := make([]byte, n)
+			copy(data, buf[:n])
+			t.inputMu.Lock()
+			sink := t.inputSink
+			t.inputMu.Unlock()
+			if sink != nil {
+				sink.Write(data) //nolint:errcheck
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// SetInputPassthrough redirects stdin to the given writer instead of
+// the normal input handler. Pass nil to discard input (e.g. when the
+// terminal is stopped). Call with the onInput wrapper to resume normal
+// input handling (done automatically by Start).
+func (t *ProcessTerminal) SetInputPassthrough(w io.Writer) {
+	t.inputMu.Lock()
+	t.inputSink = w
+	t.inputMu.Unlock()
+}
+
 func (t *ProcessTerminal) Stop() {
 	// Disable Kitty keyboard protocol.
 	t.WriteString(ansi.KittyKeyboard(0, 1))
 
 	// Disable bracketed paste.
 	t.WriteString("\x1b[?2004l")
+
+	// Stop directing input to the TUI.
+	t.inputMu.Lock()
+	t.inputSink = nil
+	t.inputMu.Unlock()
 
 	if t.stopCancel != nil {
 		t.stopCancel()
@@ -180,4 +220,3 @@ func (t *ProcessTerminal) HideCursor() {
 func (t *ProcessTerminal) ShowCursor() {
 	t.WriteString("\x1b[?25h")
 }
-

@@ -552,6 +552,18 @@ func (t *TUI) Stop() {
 	t.terminal.Stop()
 }
 
+// SetInputPassthrough redirects terminal input to w instead of the
+// normal key/mouse event handler. Use this before running a background
+// command that needs stdin: create an [io.Pipe], pass the writer here,
+// and give the reader to the command as its stdin.
+//
+// The terminal's single reader goroutine remains the sole consumer of
+// os.Stdin, avoiding races. Call [TUI.Start] to restore normal input
+// handling.
+func (t *TUI) SetInputPassthrough(w io.Writer) {
+	t.terminal.SetInputPassthrough(w)
+}
+
 // RequestRender schedules a render on the next iteration. If repaint is
 // true, all cached state is discarded and a full repaint occurs.
 //

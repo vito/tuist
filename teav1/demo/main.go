@@ -19,8 +19,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"codeberg.org/vito/tuist"
-	"codeberg.org/vito/tuist/teav1"
+	"github.com/vito/tuist"
+	"github.com/vito/tuist/teav1"
 )
 
 // item implements list.Item and list.DefaultItem.

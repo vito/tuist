@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"codeberg.org/vito/tuist"
+	"github.com/vito/tuist"
 )
 
 // Model is the interface for bubbletea v2 models that can be wrapped

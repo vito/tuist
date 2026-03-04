@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"codeberg.org/vito/tuist"
+	"github.com/vito/tuist"
 )
 
 // Wrap wraps a bubbletea v1 model as a tuist Component. It bridges

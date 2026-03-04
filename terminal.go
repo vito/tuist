@@ -6,6 +6,8 @@
 // This is a Go port of the pi TUI renderer.
 package tuist
 
+import "io"
+
 // Terminal abstracts terminal I/O so the renderer can be tested with a
 // fake terminal.
 type Terminal interface {
@@ -14,8 +16,18 @@ type Terminal interface {
 	// called when the terminal dimensions change.
 	Start(onInput func([]byte), onResize func()) error
 
-	// Stop restores the terminal to its original state.
+	// Stop restores the terminal to its original state and discards
+	// subsequent input until the next Start call.
 	Stop()
+
+	// SetInputPassthrough redirects stdin bytes to w instead of the
+	// normal input handler. This is used when a background command
+	// needs exclusive stdin access: the command reads from a pipe
+	// whose write end is w, while the terminal's single reader
+	// goroutine continues to be the sole consumer of os.Stdin.
+	// Pass nil to discard input (done automatically by Stop).
+	// Start restores normal input handling.
+	SetInputPassthrough(w io.Writer)
 
 	// Write sends raw bytes to the terminal.
 	Write(p []byte)
