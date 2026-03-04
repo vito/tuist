@@ -243,6 +243,7 @@ func New(term Terminal) *TUI {
 func newTUI(term Terminal) *TUI {
 	t := &TUI{
 		terminal:   term,
+		stopped:    true, // no rendering until Start() is called
 		eventCh:    make(chan uv.Event, 64),
 		dispatchCh: make(chan struct{}, 1),
 		renderCh:   make(chan struct{}, 1),
