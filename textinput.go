@@ -43,6 +43,11 @@ type TextInput struct {
 	// OnChange is called after the input value has been modified (character
 	// inserted, deleted, etc.). It is NOT called for cursor-only movements.
 	OnChange func(ctx EventContext)
+
+	// KeyInterceptor, if set, is called before TextInput processes a key.
+	// Return true to consume the event (TextInput won't handle it).
+	// Return false to let TextInput handle it normally.
+	KeyInterceptor func(ctx EventContext, ev uv.KeyPressEvent) bool
 }
 
 // NewTextInput creates a TextInput with the given prompt.
@@ -152,6 +157,9 @@ func (t *TextInput) Render(ctx RenderContext) RenderResult {
 
 // HandleKeyPress implements [Interactive].
 func (t *TextInput) HandleKeyPress(ctx EventContext, ev uv.KeyPressEvent) bool {
+	if t.KeyInterceptor != nil && t.KeyInterceptor(ctx, ev) {
+		return true
+	}
 	return t.handleKeyPress(ctx, ev)
 }
 
@@ -199,7 +207,7 @@ func (t *TextInput) handleKeyPress(ctx EventContext, e uv.KeyPressEvent) bool {
 	// Ctrl+J (\x0a) works universally as it's always distinct from Enter (\x0d).
 	if (key.Code == uv.KeyEnter && (key.Mod.Contains(uv.ModShift) || key.Mod.Contains(uv.ModAlt))) ||
 		(key.Code == 'j' && key.Mod == uv.ModCtrl) {
-		t.insertRune('\n')
+		t.InsertRune('\n')
 		return true
 	}
 
@@ -362,7 +370,8 @@ func (t *TextInput) handleKeyPress(ctx EventContext, e uv.KeyPressEvent) bool {
 	return true
 }
 
-func (t *TextInput) insertRune(r rune) {
+// InsertRune inserts a rune at the current cursor position.
+func (t *TextInput) InsertRune(r rune) {
 	newVal := make([]rune, 0, len(t.value)+1)
 	newVal = append(newVal, t.value[:t.cursor]...)
 	newVal = append(newVal, r)
