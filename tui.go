@@ -490,8 +490,20 @@ func (t *TUI) Dispatch(fn func()) {
 	t.RequestRender(false)
 }
 
-// Start begins the TUI event loop.
+// Start begins the TUI event loop. If the loop was previously stopped,
+// it is restarted with a fresh context.
 func (t *TUI) Start() error {
+	// Restart the event loop if it was stopped by a previous Stop() call.
+	select {
+	case <-t.loopDone:
+		// Loop has exited; restart it.
+		t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
+		t.loopDone = make(chan struct{})
+		go t.runLoop()
+	default:
+		// Loop is still running (first Start call).
+	}
+
 	t.mu.Lock()
 	t.stopped = false
 	t.mu.Unlock()
