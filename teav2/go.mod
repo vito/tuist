@@ -1,4 +1,4 @@
-module codeberg.org/vito/tuist/teav2
+module github.com/vito/tuist/teav2
 
 go 1.25.6
 
@@ -6,8 +6,8 @@ require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2
 	charm.land/lipgloss/v2 v2.0.0
-	codeberg.org/vito/tuist v0.0.0-20260304030535-360c566d700c
 	github.com/charmbracelet/ultraviolet v0.0.0-20260223171050-89c142e4aa73
+	github.com/vito/tuist v0.0.0-20260304203126-5499fb177752
 )
 
 require (

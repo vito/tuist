@@ -1,13 +1,13 @@
-module codeberg.org/vito/tuist/teav1
+module github.com/vito/tuist/teav1
 
 go 1.25.6
 
 require (
-	codeberg.org/vito/tuist v0.0.0-20260304030535-360c566d700c
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260223171050-89c142e4aa73
+	github.com/vito/tuist v0.0.0-20260304203126-5499fb177752
 )
 
 require (
