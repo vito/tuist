@@ -1175,6 +1175,18 @@ func (t *TUI) renderFrame(width, height int, stats *RenderStats) ([]string, *Cur
 
 	stats.TotalLines = len(newLines)
 
+	// Truncate lines that exceed the terminal width so they don't wrap
+	// to the next physical row (which would break the diff renderer's
+	// line-count assumptions). Use a fast len() pre-check to skip the
+	// ANSI-aware truncation for lines that are obviously short enough.
+	if width > 0 {
+		for i, line := range newLines {
+			if len(line) > width {
+				newLines[i] = ansi.Truncate(line, width, "")
+			}
+		}
+	}
+
 	return newLines, cursorPos, compStats
 }
 
