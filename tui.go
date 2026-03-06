@@ -400,6 +400,11 @@ func (t *TUI) SetClearOnShrink(enabled bool) {
 	})
 }
 
+// Focused returns the currently focused component, or nil.
+func (t *TUI) Focused() Component {
+	return t.focusedComponent
+}
+
 // SetFocus gives keyboard focus to the given component (or nil).
 // Must be called on the UI goroutine (from an event handler or Dispatch).
 func (t *TUI) SetFocus(comp Component) {
