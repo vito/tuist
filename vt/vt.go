@@ -39,8 +39,8 @@ func (m *Terminal) Write(p []byte)                                    { m.VT.Wri
 func (m *Terminal) WriteString(s string)                              { m.VT.Write([]byte(s)) }
 func (m *Terminal) Columns() int                                      { return m.VT.Width }
 func (m *Terminal) Rows() int                                         { return m.VT.Height }
-func (m *Terminal) HideCursor()                                       { m.VT.CursorVisible = false }
-func (m *Terminal) ShowCursor()                                       { m.VT.CursorVisible = true }
+func (m *Terminal) HideCursor()                                       { m.VT.Write([]byte("\x1b[?25l")) }
+func (m *Terminal) ShowCursor()                                       { m.VT.Write([]byte("\x1b[?25h")) }
 
 // Render returns the virtual terminal's content as a string including
 // ANSI escape sequences for colors and formatting, capturing the full

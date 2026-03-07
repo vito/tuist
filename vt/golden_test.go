@@ -101,17 +101,15 @@ func (c *callbackComponent) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	return c.fn(ctx)
 }
 
-// ── golden tests ───────────────────────────────────────────────────────────
+// ── basic rendering ────────────────────────────────────────────────────────
 
 func TestGolden_SimpleText(t *testing.T) {
 	term := vt.New(40, 5)
 	tui := tuist.New(term)
-
 	tui.AddChild(&text{Lines: []string{
 		"Hello, world!",
 		"This is tuist.",
 	}})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/simple_text.golden")
 }
@@ -131,7 +129,6 @@ func TestGolden_StyledText(t *testing.T) {
 		red.Render("Red alert") + " normal " + greenBg.Render("green bg"),
 		"plain text line",
 	}})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/styled_text.golden")
 }
@@ -139,7 +136,6 @@ func TestGolden_StyledText(t *testing.T) {
 func TestGolden_Container(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
-
 	tui.AddChild(&text{Lines: []string{
 		lipgloss.NewStyle().Bold(true).Render("=== Status ==="),
 	}})
@@ -151,10 +147,19 @@ func TestGolden_Container(t *testing.T) {
 	tui.AddChild(&text{Lines: []string{
 		lipgloss.NewStyle().Faint(true).Render("Press q to quit"),
 	}})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/container.golden")
 }
+
+func TestGolden_ProgressBar(t *testing.T) {
+	term := vt.New(40, 4)
+	tui := tuist.New(term)
+	tui.AddChild(&progressBar{Label: "Building", Total: 20, Done: 5})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/progress_bar.golden")
+}
+
+// ── differential rendering ─────────────────────────────────────────────────
 
 func TestGolden_DiffUpdate(t *testing.T) {
 	term := vt.New(40, 6)
@@ -166,18 +171,148 @@ func TestGolden_DiffUpdate(t *testing.T) {
 		"line 3: stable",
 	}}
 	tui.AddChild(comp)
-
-	// First render.
 	tui.RenderOnce()
 
-	// Mutate and re-render. The TUI writes differential updates directly
-	// to midterm, which applies cursor movement and line clearing just
-	// like a real terminal.
 	comp.Lines[1] = "line 2: CHANGED!"
 	comp.Update()
 	tui.RenderOnce()
 
 	golden.Assert(t, term.Render(), "golden/diff_update.golden")
+}
+
+func TestGolden_AppendLines(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+
+	comp := &text{Lines: []string{"a"}}
+	tui.AddChild(comp)
+	tui.RenderOnce()
+
+	comp.Lines = []string{"a", "b", "c"}
+	comp.Update()
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/append_lines.golden")
+}
+
+func TestGolden_NoChangeStable(t *testing.T) {
+	term := vt.New(40, 5)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: []string{"stable line"}})
+
+	tui.RenderOnce()
+	tui.RenderOnce() // re-render with no changes
+
+	golden.Assert(t, term.Render(), "golden/no_change_stable.golden")
+}
+
+func TestGolden_WidthChange(t *testing.T) {
+	term := vt.New(40, 5)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: []string{"hello world"}})
+	tui.RenderOnce()
+
+	// Resize the virtual terminal.
+	term.VT.Resize(5, 60)
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/width_change.golden")
+}
+
+func TestGolden_OffscreenChange(t *testing.T) {
+	term := vt.New(40, 5)
+	tui := tuist.New(term)
+
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d", i)
+	}
+	comp := &text{Lines: lines}
+	tui.AddChild(comp)
+	tui.RenderOnce()
+
+	// Change a line above the viewport.
+	comp.Lines[0] = "line 00 CHANGED"
+	comp.Update()
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/offscreen_change.golden")
+}
+
+func TestGolden_FirstRenderClearsExistingContent(t *testing.T) {
+	// Regression: when re-adding shorter content after removing all
+	// children, old content must not bleed through.
+	term := vt.New(80, 10)
+	tui := tuist.New(term)
+
+	long := &text{Lines: []string{"Loading Dagger module from /home/user/project..."}}
+	tui.AddChild(long)
+	tui.RenderOnce()
+
+	tui.RemoveChild(long)
+	tui.RenderOnce()
+
+	short := &text{Lines: []string{"Welcome v0.1"}}
+	tui.AddChild(short)
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/first_render_clears.golden")
+}
+
+// ── cursor positioning ─────────────────────────────────────────────────────
+
+func TestGolden_CursorPosition(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.SetShowHardwareCursor(true)
+
+	tui.AddChild(&text{
+		Lines:  []string{"first line", "cursor here", "last line"},
+		Cursor: &tuist.CursorPos{Row: 1, Col: 3},
+	})
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/cursor_position.golden")
+}
+
+func TestGolden_ContainerPropagatesCursor(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.SetShowHardwareCursor(true)
+
+	// First child: 2 lines, no cursor.
+	tui.AddChild(&text{Lines: []string{"a", "b"}})
+	// Second child: 1 line, cursor at (0, 5).
+	// In assembled output, this is row 2, col 5.
+	tui.AddChild(&text{
+		Lines:  []string{"hello world"},
+		Cursor: &tuist.CursorPos{Row: 0, Col: 5},
+	})
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/container_cursor.golden")
+}
+
+// ── overlay compositing ────────────────────────────────────────────────────
+
+func TestGolden_OverlayCompositing(t *testing.T) {
+	term := vt.New(20, 5)
+	tui := tuist.New(term)
+
+	tui.AddChild(&text{Lines: []string{
+		strings.Repeat(".", 20),
+		strings.Repeat(".", 20),
+		strings.Repeat(".", 20),
+		strings.Repeat(".", 20),
+		strings.Repeat(".", 20),
+	}})
+
+	tui.ShowOverlay(&text{Lines: []string{"OVERLAY"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(10),
+		Anchor: tuist.AnchorCenter,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_compositing.golden")
 }
 
 func TestGolden_Overlay(t *testing.T) {
@@ -198,22 +333,212 @@ func TestGolden_Overlay(t *testing.T) {
 		MaxHeight: tuist.SizeAbs(8),
 		Anchor:    tuist.AnchorCenter,
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay.golden")
 }
 
-func TestGolden_ProgressBar(t *testing.T) {
-	term := vt.New(40, 4)
+func TestGolden_ContentRelativeOverlay(t *testing.T) {
+	term := vt.New(30, 10)
 	tui := tuist.New(term)
 
-	tui.AddChild(&progressBar{Label: "Building", Total: 20, Done: 5})
+	tui.AddChild(&text{Lines: []string{"line-0", "line-1", "line-2"}})
 
+	tui.ShowOverlay(&text{Lines: []string{"MENU-A", "MENU-B"}}, &tuist.OverlayOptions{
+		Width:           tuist.SizeAbs(10),
+		Anchor:          tuist.AnchorBottomLeft,
+		ContentRelative: true,
+		OffsetY:         -1,
+	})
 	tui.RenderOnce()
-	golden.Assert(t, term.Render(), "golden/progress_bar.golden")
+	golden.Assert(t, term.Render(), "golden/content_relative_overlay.golden")
 }
 
-// ── overlay regression tests (ported from tui_test.go) ─────────────────────
+func TestGolden_CursorRelativeOverlayPreferAbove(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+
+	tui.AddChild(&text{
+		Lines:  []string{"line-0", "line-1", "line-2", "line-3", "line-4", "input>"},
+		Cursor: &tuist.CursorPos{Row: 5, Col: 7},
+	})
+
+	tui.ShowOverlay(&text{Lines: []string{"MENU-A", "MENU-B", "MENU-C"}}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(10),
+		CursorRelative: true,
+		PreferAbove:    true,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/cursor_relative_above.golden")
+}
+
+func TestGolden_CursorRelativeOverlayFlipToBelow(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+
+	// Cursor at row 1 — not enough room above for 3-line menu.
+	tui.AddChild(&text{
+		Lines:  []string{"line-0", "input>", "line-2", "line-3"},
+		Cursor: &tuist.CursorPos{Row: 1, Col: 7},
+	})
+
+	tui.ShowOverlay(&text{Lines: []string{"MENU-A", "MENU-B", "MENU-C"}}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(10),
+		CursorRelative: true,
+		PreferAbove:    true,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/cursor_relative_flip_below.golden")
+}
+
+func TestGolden_CursorRelativeOverlayOffsetX(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+
+	tui.AddChild(&text{
+		Lines:  []string{"aaaa", "bbbb", "cccc", "input>"},
+		Cursor: &tuist.CursorPos{Row: 3, Col: 10},
+	})
+
+	tui.ShowOverlay(&text{Lines: []string{"HI"}}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(5),
+		CursorRelative: true,
+		PreferAbove:    true,
+		OffsetX:        -3,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/cursor_relative_offset_x.golden")
+}
+
+func TestGolden_CursorRelativeOverlayMaxHeightNotClampedToContent(t *testing.T) {
+	// Regression: cursor-relative overlays should resolve MaxHeight
+	// against terminal height, not content height.
+	term := vt.New(40, 24)
+	tui := tuist.New(term)
+
+	tui.AddChild(&text{
+		Lines:  []string{"line-0", "line-1", "input>"},
+		Cursor: &tuist.CursorPos{Row: 2, Col: 7},
+	})
+
+	var menuLines []string
+	for i := range 10 {
+		menuLines = append(menuLines, fmt.Sprintf("item-%d", i))
+	}
+	tui.ShowOverlay(&text{Lines: menuLines}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(15),
+		MaxHeight:      tuist.SizeAbs(12),
+		CursorRelative: true,
+		PreferAbove:    false,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/cursor_relative_max_height.golden")
+}
+
+func TestGolden_CursorRelativeOverlayCursorGroupBothFitAbove(t *testing.T) {
+	term := vt.New(60, 20)
+	tui := tuist.New(term)
+
+	var bgLines []string
+	for i := range 7 {
+		bgLines = append(bgLines, fmt.Sprintf("line-%d", i))
+	}
+	bgLines = append(bgLines, "input>")
+	tui.AddChild(&text{
+		Lines:  bgLines,
+		Cursor: &tuist.CursorPos{Row: 7, Col: 7},
+	})
+
+	group := tuist.NewCursorGroup()
+
+	tui.ShowOverlay(&text{Lines: []string{"M-0", "M-1", "M-2", "M-3", "M-4"}}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(10),
+		CursorRelative: true,
+		PreferAbove:    true,
+		CursorGroup:    group,
+	})
+
+	tui.ShowOverlay(&text{Lines: []string{"D-0", "D-1"}}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(10),
+		CursorRelative: true,
+		PreferAbove:    true,
+		OffsetX:        12,
+		CursorGroup:    group,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/cursor_group_both_above.golden")
+}
+
+func TestGolden_CursorRelativeOverlayCursorGroupFlipAll(t *testing.T) {
+	term := vt.New(60, 20)
+	tui := tuist.New(term)
+
+	// Cursor at row 3. Menu (2 lines) fits above but detail (5 lines)
+	// doesn't. CursorGroup forces both below.
+	tui.AddChild(&text{
+		Lines:  []string{"line-0", "line-1", "line-2", "input>"},
+		Cursor: &tuist.CursorPos{Row: 3, Col: 7},
+	})
+
+	group := tuist.NewCursorGroup()
+
+	tui.ShowOverlay(&text{Lines: []string{"M-0", "M-1"}}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(10),
+		CursorRelative: true,
+		PreferAbove:    true,
+		CursorGroup:    group,
+	})
+
+	tui.ShowOverlay(&text{Lines: []string{"D-0", "D-1", "D-2", "D-3", "D-4"}}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(10),
+		CursorRelative: true,
+		PreferAbove:    true,
+		OffsetX:        12,
+		CursorGroup:    group,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/cursor_group_flip_all.golden")
+}
+
+func TestGolden_CursorRelativeOverlayNoCursor(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+
+	// No cursor — cursor-relative overlay should be hidden.
+	tui.AddChild(&text{Lines: []string{"line-0", "line-1"}})
+
+	tui.ShowOverlay(&text{Lines: []string{"MENU-A"}}, &tuist.OverlayOptions{
+		Width:          tuist.SizeAbs(10),
+		CursorRelative: true,
+		PreferAbove:    true,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/cursor_relative_no_cursor.golden")
+}
+
+func TestGolden_OverlayMaxHeightPassedToComponent(t *testing.T) {
+	term := vt.New(80, 24)
+	tui := tuist.New(term)
+
+	tui.AddChild(&text{Lines: []string{
+		"content 0", "content 1", "content 2", "content 3", "content 4",
+		"content 5", "content 6", "content 7", "content 8", "content 9",
+	}})
+
+	// The overlay is given MaxHeight=8 and renders 5 lines, verifying
+	// the height constraint is passed through and respected.
+	tui.ShowOverlay(&text{Lines: []string{
+		"line 0", "line 1", "line 2", "line 3", "line 4",
+	}}, &tuist.OverlayOptions{
+		Width:     tuist.SizeAbs(20),
+		MaxHeight: tuist.SizeAbs(8),
+		Anchor:    tuist.AnchorTopRight,
+		Margin:    tuist.OverlayMargin{Top: 1, Right: 1},
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_max_height.golden")
+}
+
+// ── bordered overlay regression tests ──────────────────────────────────────
 
 func TestGolden_OverlayBorderedBoxWithMaxHeight(t *testing.T) {
 	term := vt.New(60, 20)
@@ -238,7 +563,6 @@ func TestGolden_OverlayBorderedBoxWithMaxHeight(t *testing.T) {
 		Anchor:    tuist.AnchorTopRight,
 		Margin:    tuist.OverlayMargin{Top: 1, Right: 1},
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_bordered_max_height.golden")
 }
@@ -262,7 +586,6 @@ func TestGolden_OverlayBorderedBoxFitsNaturally(t *testing.T) {
 		Anchor:    tuist.AnchorTopRight,
 		Margin:    tuist.OverlayMargin{Top: 1, Right: 1},
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_bordered_fits.golden")
 }
@@ -270,21 +593,15 @@ func TestGolden_OverlayBorderedBoxFitsNaturally(t *testing.T) {
 func TestGolden_OverlayLastLineNotDropped(t *testing.T) {
 	term := vt.New(60, 20)
 	tui := tuist.New(term)
-
 	tui.AddChild(&text{Lines: []string{"line 0", "line 1", "line 2"}})
 
 	tui.ShowOverlay(&text{Lines: []string{
-		"TOP-BORDER",
-		"content-a",
-		"content-b",
-		"content-c",
-		"BOTTOM-BORDER",
+		"TOP-BORDER", "content-a", "content-b", "content-c", "BOTTOM-BORDER",
 	}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(20),
 		Anchor: tuist.AnchorTopRight,
 		Margin: tuist.OverlayMargin{Top: 1, Right: 1},
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_last_line.golden")
 }
@@ -300,17 +617,12 @@ func TestGolden_OverlayLastLineWithScrolling(t *testing.T) {
 	tui.AddChild(&text{Lines: bgLines})
 
 	tui.ShowOverlay(&text{Lines: []string{
-		"TOP-BORDER",
-		"content-a",
-		"content-b",
-		"content-c",
-		"BOTTOM-BORDER",
+		"TOP-BORDER", "content-a", "content-b", "content-c", "BOTTOM-BORDER",
 	}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(20),
 		Anchor: tuist.AnchorTopRight,
 		Margin: tuist.OverlayMargin{Top: 1, Right: 1},
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_last_line_scrolling.golden")
 }
@@ -318,7 +630,6 @@ func TestGolden_OverlayLastLineWithScrolling(t *testing.T) {
 func TestGolden_OverlayTwoOverlaysLastLine(t *testing.T) {
 	term := vt.New(60, 20)
 	tui := tuist.New(term)
-
 	tui.AddChild(&text{Lines: []string{
 		"line 0", "line 1", "line 2", "line 3", "line 4",
 	}})
@@ -331,16 +642,12 @@ func TestGolden_OverlayTwoOverlaysLastLine(t *testing.T) {
 	})
 
 	tui.ShowOverlay(&text{Lines: []string{
-		"TOP-BORDER",
-		"content-a",
-		"content-b",
-		"BOTTOM-BORDER",
+		"TOP-BORDER", "content-a", "content-b", "BOTTOM-BORDER",
 	}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(20),
 		Anchor: tuist.AnchorTopRight,
 		Margin: tuist.OverlayMargin{Top: 1, Right: 1},
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_two_overlays.golden")
 }
@@ -370,7 +677,6 @@ func TestGolden_OverlayAtBottomOfViewport(t *testing.T) {
 		Anchor: tuist.AnchorTopRight,
 		Margin: tuist.OverlayMargin{Top: 0, Right: 1},
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_at_bottom_viewport.golden")
 }
@@ -378,7 +684,6 @@ func TestGolden_OverlayAtBottomOfViewport(t *testing.T) {
 func TestGolden_OverlayTallerThanViewport(t *testing.T) {
 	term := vt.New(60, 8)
 	tui := tuist.New(term)
-
 	tui.AddChild(&text{Lines: []string{"bg 0", "bg 1", "bg 2", "bg 3"}})
 
 	tui.ShowOverlay(&text{Lines: []string{
@@ -398,7 +703,6 @@ func TestGolden_OverlayTallerThanViewport(t *testing.T) {
 		Width:  tuist.SizeAbs(18),
 		Anchor: tuist.AnchorTopLeft,
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_taller_than_viewport.golden")
 }
@@ -413,8 +717,6 @@ func TestGolden_OverlayBorderedBoxWidthMismatch(t *testing.T) {
 	}
 	tui.AddChild(&text{Lines: bgLines})
 
-	// Mimics the detailBubble.Render pattern: lipgloss Width(n) is
-	// TOTAL width including borders, so content must be wrapped to n-2.
 	overlay := &callbackComponent{fn: func(ctx tuist.RenderContext) tuist.RenderResult {
 		borderStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -450,7 +752,6 @@ func TestGolden_OverlayBorderedBoxWidthMismatch(t *testing.T) {
 		Anchor:    tuist.AnchorTopRight,
 		Margin:    tuist.OverlayMargin{Top: 1, Right: 1},
 	})
-
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_bordered_width_mismatch.golden")
 }

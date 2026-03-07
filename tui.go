@@ -339,17 +339,18 @@ func (t *TUI) FullRedraws() int {
 	return t.fullRedrawCount
 }
 
-// SetShowHardwareCursor enables or disables the hardware cursor (for IME).
+// SetShowHardwareCursor enables or disables the hardware cursor.
+// When enabled, the terminal cursor is positioned at the component's
+// reported cursor location and made visible; this is used for IME
+// input and cursor-position tests.
 func (t *TUI) SetShowHardwareCursor(enabled bool) {
-	t.Dispatch(func() {
-		if t.showHardwareCursor == enabled {
-			return
-		}
-		t.showHardwareCursor = enabled
-		if !enabled {
-			t.terminal.HideCursor()
-		}
-	})
+	if t.showHardwareCursor == enabled {
+		return
+	}
+	t.showHardwareCursor = enabled
+	if !enabled {
+		t.terminal.HideCursor()
+	}
 }
 
 // EnableMouse increments the mouse reference count and, if transitioning
