@@ -177,13 +177,12 @@ type TUI struct {
 	decoder  uv.EventDecoder
 
 	// mu protects fields shared between the main goroutine and the UI
-	// goroutine: stopped, fullRedrawCount, kittyKeyboard.
+	// goroutine: fullRedrawCount, kittyKeyboard.
 	// All rendering and component state is owned by the UI goroutine.
 	mu sync.Mutex
 
 	// ── mu-protected state (shared between goroutines) ──
 
-	stopped         bool
 	fullRedrawCount int
 	kittyKeyboard   bool
 
@@ -231,21 +230,12 @@ type TUI struct {
 	stopCancel context.CancelFunc // cancels stopCtx
 }
 
-// New creates a TUI backed by the given terminal.
+// New creates a TUI backed by the given terminal. No goroutines are
+// started; call [TUI.Start] to begin the interactive event loop, or
+// use [TUI.RenderOnce] for synchronous single-frame rendering.
 func New(term Terminal) *TUI {
-	t := newTUI(term)
-	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
-	t.loopDone = make(chan struct{})
-	go t.runLoop()
-	return t
-}
-
-// newTUI creates a TUI without starting the event loop. Used by tests
-// that call doRender synchronously.
-func newTUI(term Terminal) *TUI {
 	t := &TUI{
 		terminal:   term,
-		stopped:    true, // no rendering until Start() is called
 		eventCh:    make(chan uv.Event, 64),
 		dispatchCh: make(chan struct{}, 1),
 		renderCh:   make(chan struct{}, 1),
@@ -299,12 +289,7 @@ func (t *TUI) runLoop() {
 			}
 		}
 
-		t.mu.Lock()
-		stopped := t.stopped
-		t.mu.Unlock()
-		if !stopped {
-			t.doRender()
-		}
+		t.doRender()
 	}
 }
 
@@ -497,23 +482,29 @@ func (t *TUI) Dispatch(fn func()) {
 	t.RequestRender(false)
 }
 
-// Start begins the TUI event loop. If the loop was previously stopped,
-// it is restarted with a fresh context.
+// Start begins the TUI event loop and puts the terminal into raw mode.
+// The event loop runs on a background goroutine; all component state
+// mutations (Render, HandleKeyPress, Dispatch callbacks) are serialized
+// on that goroutine. Call [TUI.Stop] to end the loop and restore the
+// terminal.
+//
+// For synchronous/headless rendering without an event loop, use
+// [TUI.RenderOnce] instead.
 func (t *TUI) Start() error {
-	// Restart the event loop if it was stopped by a previous Stop() call.
-	select {
-	case <-t.loopDone:
-		// Loop has exited; restart it.
-		t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
-		t.loopDone = make(chan struct{})
-		go t.runLoop()
-	default:
-		// Loop is still running (first Start call).
+	// If a previous loop is still running, stop it first.
+	if t.loopDone != nil {
+		select {
+		case <-t.loopDone:
+			// Already exited.
+		default:
+			t.stopCancel()
+			<-t.loopDone
+		}
 	}
 
-	t.mu.Lock()
-	t.stopped = false
-	t.mu.Unlock()
+	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
+	t.loopDone = make(chan struct{})
+	go t.runLoop()
 
 	err := t.terminal.Start(
 		func(data []byte) { t.handleInput(data) },
@@ -535,7 +526,9 @@ func (t *TUI) Stop() {
 func (t *TUI) stop(clear bool) {
 	// Signal the event loop to stop and wait for it to finish any
 	// in-progress work.
-	t.stopCancel()
+	if t.stopCancel != nil {
+		t.stopCancel()
+	}
 	if t.loopDone != nil {
 		<-t.loopDone
 	}
@@ -1118,6 +1111,17 @@ func diffLines(prev, next []string) diffResult {
 		lastChanged:  lastChanged,
 		appendStart:  appendStart,
 	}
+}
+
+// RenderOnce performs a single synchronous render cycle, writing the
+// output directly to the underlying Terminal. This is useful for
+// headless rendering, testing, or any scenario where you want to
+// produce exactly one frame without running the event loop.
+//
+// Must not be called concurrently with the event loop (i.e., don't
+// call this while Start() is active).
+func (t *TUI) RenderOnce() {
+	t.doRender()
 }
 
 func (t *TUI) doRender() {

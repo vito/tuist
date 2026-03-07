@@ -6,11 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gotest.tools/v3/golden"
 )
 
 // mockTerminal records writes and simulates a fixed-size terminal.
@@ -63,22 +61,16 @@ func (s *staticComponent) Render(ctx RenderContext) RenderResult {
 	}
 }
 
-// renderSync calls doRender directly. Tests use newTUI (no renderLoop),
-// so there's no concurrency to worry about.
-func renderSync(t *TUI) {
-	t.doRender()
-}
 
 func TestFirstRender(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 	tui.AddChild(&staticComponent{lines: []string{"hello", "world"}})
 
 	// Simulate start without goroutines.
-	tui.stopped = false
 	term.reset()
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	out := term.written.String()
 	assert.Contains(t, out, "hello")
@@ -90,20 +82,19 @@ func TestFirstRender(t *testing.T) {
 
 func TestDifferentialRender(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 	comp := &staticComponent{lines: []string{"line1", "line2", "line3"}}
 	tui.AddChild(comp)
-	tui.stopped = false
 
 	// First render.
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 1, tui.FullRedraws())
 
 	// Change only the second line.
 	comp.lines[1] = "LINE2"
 	comp.Update()
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 
 	out := term.written.String()
 	// Should NOT be a full redraw (no clear scrollback sequence).
@@ -119,18 +110,17 @@ func TestDifferentialRender(t *testing.T) {
 
 func TestAppendLines(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 	comp := &staticComponent{lines: []string{"a"}}
 	tui.AddChild(comp)
-	tui.stopped = false
 
-	renderSync(tui)
+	tui.RenderOnce()
 	term.reset()
 
 	// Append new lines.
 	comp.lines = []string{"a", "b", "c"}
 	comp.Update()
-	renderSync(tui)
+	tui.RenderOnce()
 
 	out := term.written.String()
 	assert.Contains(t, out, "b")
@@ -141,23 +131,22 @@ func TestAppendLines(t *testing.T) {
 
 func TestWidthChangeTriggersFullRedraw(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 	tui.AddChild(&staticComponent{lines: []string{"hello"}})
-	tui.stopped = false
 
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 1, tui.FullRedraws())
 
 	// Simulate resize.
 	term.cols = 60
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 2, tui.FullRedraws())
 }
 
 func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
 	term := newMockTerminal(40, 5) // only 5 rows visible
-	tui := newTUI(term)
+	tui := New(term)
 
 	// Create enough content to scroll.
 	lines := make([]string, 20)
@@ -166,9 +155,8 @@ func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
 	}
 	comp := &staticComponent{lines: lines}
 	tui.AddChild(comp)
-	tui.stopped = false
 
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 1, tui.FullRedraws())
 
 	// Change a line that is above the viewport (line 0 is off-screen when
@@ -176,7 +164,7 @@ func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
 	comp.lines[0] = "CHANGED"
 	comp.Update()
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// Should trigger a full redraw because the change is above viewport.
 	assert.Equal(t, 2, tui.FullRedraws())
@@ -186,15 +174,14 @@ func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
 
 func TestNoChangeNoOutput(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 	tui.AddChild(&staticComponent{lines: []string{"stable"}})
-	tui.stopped = false
 
-	renderSync(tui)
+	tui.RenderOnce()
 	term.reset()
 
 	// Render again with no changes.
-	renderSync(tui)
+	tui.RenderOnce()
 
 	out := term.written.String()
 	// Should only have cursor positioning (hide cursor), no content writes.
@@ -204,7 +191,7 @@ func TestNoChangeNoOutput(t *testing.T) {
 
 func TestStructuralCursorPosition(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 	tui.showHardwareCursor = true
 
 	comp := &staticComponent{
@@ -212,9 +199,8 @@ func TestStructuralCursorPosition(t *testing.T) {
 		cursor: &CursorPos{Row: 1, Col: 3},
 	}
 	tui.AddChild(comp)
-	tui.stopped = false
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// Verify cursor was positioned (row 1, col 3).
 	// The hardware cursor should be at row 1.
@@ -224,7 +210,7 @@ func TestStructuralCursorPosition(t *testing.T) {
 
 func TestContainerPropagatesCursor(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 
 	// First child: 2 lines, no cursor.
 	c1 := &staticComponent{lines: []string{"a", "b"}}
@@ -235,7 +221,6 @@ func TestContainerPropagatesCursor(t *testing.T) {
 	}
 	tui.AddChild(c1)
 	tui.AddChild(c2)
-	tui.stopped = false
 
 	result := tui.Render(RenderContext{Width: 40})
 	require.NotNil(t, result.Cursor)
@@ -246,7 +231,7 @@ func TestContainerPropagatesCursor(t *testing.T) {
 
 func TestOverlayCompositing(t *testing.T) {
 	term := newMockTerminal(20, 5)
-	tui := newTUI(term)
+	tui := New(term)
 	bg := &staticComponent{lines: []string{
 		strings.Repeat(".", 20),
 		strings.Repeat(".", 20),
@@ -255,7 +240,6 @@ func TestOverlayCompositing(t *testing.T) {
 		strings.Repeat(".", 20),
 	}}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	overlay := &staticComponent{lines: []string{"OVERLAY"}}
 	tui.ShowOverlay(overlay, &OverlayOptions{
@@ -263,7 +247,7 @@ func TestOverlayCompositing(t *testing.T) {
 		Anchor: AnchorCenter,
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// The overlay should be composited into the rendered output.
 	prev := tui.previousLines
@@ -280,14 +264,13 @@ func TestOverlayCompositing(t *testing.T) {
 
 func TestContentRelativeOverlay(t *testing.T) {
 	term := newMockTerminal(30, 10)
-	tui := newTUI(term)
+	tui := New(term)
 	bg := &staticComponent{lines: []string{
 		"line-0",
 		"line-1",
 		"line-2",
 	}}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	menu := &staticComponent{lines: []string{"MENU-A", "MENU-B"}}
 	tui.ShowOverlay(menu, &OverlayOptions{
@@ -297,7 +280,7 @@ func TestContentRelativeOverlay(t *testing.T) {
 		OffsetY:         -1, // above the last content line
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	prev := tui.previousLines
 
@@ -309,7 +292,7 @@ func TestContentRelativeOverlay(t *testing.T) {
 
 func TestCursorRelativeOverlayPreferAbove(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 
 	// Base content with cursor on line 5 (enough room above for a 3-line menu).
 	bg := &staticComponent{
@@ -317,7 +300,6 @@ func TestCursorRelativeOverlayPreferAbove(t *testing.T) {
 		cursor: &CursorPos{Row: 5, Col: 7},
 	}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	menu := &staticComponent{lines: []string{"MENU-A", "MENU-B", "MENU-C"}}
 	tui.ShowOverlay(menu, &OverlayOptions{
@@ -326,7 +308,7 @@ func TestCursorRelativeOverlayPreferAbove(t *testing.T) {
 		PreferAbove:    true,
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	prev := tui.previousLines
 
@@ -340,7 +322,7 @@ func TestCursorRelativeOverlayPreferAbove(t *testing.T) {
 
 func TestCursorRelativeOverlayFlipToBelow(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 
 	// Cursor at row 1 — not enough room above for a 3-line menu.
 	bg := &staticComponent{
@@ -348,7 +330,6 @@ func TestCursorRelativeOverlayFlipToBelow(t *testing.T) {
 		cursor: &CursorPos{Row: 1, Col: 7},
 	}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	menu := &staticComponent{lines: []string{"MENU-A", "MENU-B", "MENU-C"}}
 	tui.ShowOverlay(menu, &OverlayOptions{
@@ -357,7 +338,7 @@ func TestCursorRelativeOverlayFlipToBelow(t *testing.T) {
 		PreferAbove:    true,
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	prev := tui.previousLines
 
@@ -371,14 +352,13 @@ func TestCursorRelativeOverlayFlipToBelow(t *testing.T) {
 
 func TestCursorRelativeOverlayOffsetX(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 
 	bg := &staticComponent{
 		lines:  []string{"aaaa", "bbbb", "cccc", "input>"},
 		cursor: &CursorPos{Row: 3, Col: 10},
 	}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	menu := &staticComponent{lines: []string{"HI"}}
 	tui.ShowOverlay(menu, &OverlayOptions{
@@ -388,7 +368,7 @@ func TestCursorRelativeOverlayOffsetX(t *testing.T) {
 		OffsetX:        -3, // 3 columns left of cursor
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	prev := tui.previousLines
 
@@ -406,7 +386,7 @@ func TestCursorRelativeOverlayMaxHeightNotClampedToContent(t *testing.T) {
 	// a 6-line content area would clamp MaxHeight to 6 lines even though
 	// the terminal had 24 rows.
 	term := newMockTerminal(40, 24)
-	tui := newTUI(term)
+	tui := New(term)
 
 	// Only 3 lines of content, but the overlay needs more room.
 	bg := &staticComponent{
@@ -414,7 +394,6 @@ func TestCursorRelativeOverlayMaxHeightNotClampedToContent(t *testing.T) {
 		cursor: &CursorPos{Row: 2, Col: 7},
 	}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	// Overlay with 10 lines and MaxHeight of 12 (fits in terminal, doesn't
 	// fit in content height of 3).
@@ -430,7 +409,7 @@ func TestCursorRelativeOverlayMaxHeightNotClampedToContent(t *testing.T) {
 		PreferAbove:    false,
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	prev := tui.previousLines
 
@@ -449,7 +428,7 @@ func TestCursorRelativeOverlayMaxHeightNotClampedToContent(t *testing.T) {
 
 func TestCursorRelativeOverlayCursorGroupBothFitAbove(t *testing.T) {
 	term := newMockTerminal(60, 20)
-	tui := newTUI(term)
+	tui := New(term)
 
 	// 8 lines of content, cursor at row 7 — enough room above for both.
 	var bgLines []string
@@ -462,7 +441,6 @@ func TestCursorRelativeOverlayCursorGroupBothFitAbove(t *testing.T) {
 		cursor: &CursorPos{Row: 7, Col: 7},
 	}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	group := NewCursorGroup()
 
@@ -485,7 +463,7 @@ func TestCursorRelativeOverlayCursorGroupBothFitAbove(t *testing.T) {
 		CursorGroup:    group,
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	prev := tui.previousLines
 
@@ -509,7 +487,7 @@ func TestCursorRelativeOverlayCursorGroupBothFitAbove(t *testing.T) {
 func TestCursorRelativeOverlayCursorGroupFlipAll(t *testing.T) {
 	// When one member of a CursorGroup doesn't fit above, all go below.
 	term := newMockTerminal(60, 20)
-	tui := newTUI(term)
+	tui := New(term)
 
 	// 4 lines of content, cursor at row 3.
 	// Menu (2 lines) fits above (3 - 2 = 1 >= 0).
@@ -520,7 +498,6 @@ func TestCursorRelativeOverlayCursorGroupFlipAll(t *testing.T) {
 		cursor: &CursorPos{Row: 3, Col: 7},
 	}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	group := NewCursorGroup()
 
@@ -541,7 +518,7 @@ func TestCursorRelativeOverlayCursorGroupFlipAll(t *testing.T) {
 		CursorGroup:    group,
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	prev := tui.previousLines
 
@@ -563,12 +540,11 @@ func TestCursorRelativeOverlayCursorGroupFlipAll(t *testing.T) {
 
 func TestCursorRelativeOverlayNoCursor(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 
 	// Base content with NO cursor.
 	bg := &staticComponent{lines: []string{"line-0", "line-1"}}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	menu := &staticComponent{lines: []string{"MENU-A"}}
 	tui.ShowOverlay(menu, &OverlayOptions{
@@ -577,7 +553,7 @@ func TestCursorRelativeOverlayNoCursor(t *testing.T) {
 		PreferAbove:    true,
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	prev := tui.previousLines
 
@@ -589,8 +565,7 @@ func TestCursorRelativeOverlayNoCursor(t *testing.T) {
 
 func TestOverlayDoesNotStealFocus(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	// Create a main component and give it focus.
 	main := &staticComponent{lines: []string{"main"}}
@@ -699,13 +674,12 @@ func TestCompositeWithTabExpandedLine(t *testing.T) {
 
 func TestOverlayMaxHeightPassedToComponent(t *testing.T) {
 	term := newMockTerminal(80, 24)
-	tui := newTUI(term)
+	tui := New(term)
 	bg := &staticComponent{lines: []string{
 		"content 0", "content 1", "content 2", "content 3", "content 4",
 		"content 5", "content 6", "content 7", "content 8", "content 9",
 	}}
 	tui.AddChild(bg)
-	tui.stopped = false
 
 	// Component that records the Height it received.
 	var gotHeight int
@@ -721,7 +695,7 @@ func TestOverlayMaxHeightPassedToComponent(t *testing.T) {
 		Margin:    OverlayMargin{Top: 1, Right: 1},
 	})
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	assert.Equal(t, 8, gotHeight, "MaxHeight should be passed as ctx.Height")
 }
@@ -734,354 +708,6 @@ type callbackComponent struct {
 
 func (c *callbackComponent) Render(ctx RenderContext) RenderResult {
 	return c.render(ctx)
-}
-
-// borderedOverlay renders a lipgloss-bordered box that respects ctx.Height.
-type borderedOverlay struct {
-	Compo
-	title string
-	lines []string
-}
-
-func (b *borderedOverlay) Render(ctx RenderContext) RenderResult {
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63"))
-
-	innerW := max(10, ctx.Width-2)
-
-	inner := append([]string{b.title}, b.lines...)
-
-	// Respect height budget: reserve 2 lines for top/bottom border.
-	if ctx.Height > 0 && len(inner) > ctx.Height-2 {
-		maxInner := ctx.Height - 2
-		if maxInner > 1 {
-			inner = inner[:maxInner-1]
-			inner = append(inner, "...")
-		} else if maxInner > 0 {
-			inner = inner[:maxInner]
-		}
-	}
-
-	box := borderStyle.Width(innerW).Render(strings.Join(inner, "\n"))
-	return RenderResult{
-		Lines: strings.Split(box, "\n"),
-	}
-}
-
-// snapshotRenderedLines renders the TUI and returns the previousLines joined
-// with newlines, with ANSI stripped. Each line is padded to terminal width
-// using visible-width accounting (correct for multi-byte UTF-8).
-func snapshotRenderedLines(tui *TUI, term *mockTerminal) string {
-	renderSync(tui)
-
-	prev := tui.previousLines
-
-	w := term.Columns()
-	var sb strings.Builder
-	for i, line := range prev {
-		stripped := stripANSI(line)
-		vw := VisibleWidth(stripped)
-		if vw < w {
-			stripped += strings.Repeat(" ", w-vw)
-		} else if vw > w {
-			stripped = Truncate(stripped, w, "")
-		}
-		if i > 0 {
-			sb.WriteByte('\n')
-		}
-		sb.WriteString(stripped)
-	}
-	sb.WriteByte('\n')
-	return sb.String()
-}
-
-func TestOverlayBorderedBoxWithMaxHeight(t *testing.T) {
-	term := newMockTerminal(60, 20)
-	tui := newTUI(term)
-
-	// Background content.
-	var bgLines []string
-	for i := range 10 {
-		bgLines = append(bgLines, fmt.Sprintf("content line %d", i))
-	}
-	tui.AddChild(&staticComponent{lines: bgLines})
-	tui.stopped = false
-
-	// Bordered overlay with more content than MaxHeight allows.
-	var detailLines []string
-	for i := range 20 {
-		detailLines = append(detailLines, fmt.Sprintf("detail %d", i))
-	}
-	overlay := &borderedOverlay{
-		title: "MyFunction",
-		lines: detailLines,
-	}
-	tui.ShowOverlay(overlay, &OverlayOptions{
-		Width:     SizeAbs(30),
-		MaxHeight: SizeAbs(12),
-		Anchor:    AnchorTopRight,
-		Margin:    OverlayMargin{Top: 1, Right: 1},
-	})
-
-	snap := snapshotRenderedLines(tui, term)
-	golden.Assert(t, snap, "overlay_bordered_max_height.golden")
-}
-
-func TestOverlayBorderedBoxFitsNaturally(t *testing.T) {
-	term := newMockTerminal(60, 20)
-	tui := newTUI(term)
-
-	var bgLines []string
-	for i := range 10 {
-		bgLines = append(bgLines, fmt.Sprintf("content line %d", i))
-	}
-	tui.AddChild(&staticComponent{lines: bgLines})
-	tui.stopped = false
-
-	// Bordered overlay that fits within MaxHeight without truncation.
-	overlay := &borderedOverlay{
-		title: "SmallFunc",
-		lines: []string{"returns String!", "", "A short description."},
-	}
-	tui.ShowOverlay(overlay, &OverlayOptions{
-		Width:     SizeAbs(30),
-		MaxHeight: SizeAbs(12),
-		Anchor:    AnchorTopRight,
-		Margin:    OverlayMargin{Top: 1, Right: 1},
-	})
-
-	snap := snapshotRenderedLines(tui, term)
-	golden.Assert(t, snap, "overlay_bordered_fits.golden")
-}
-
-func TestOverlayLastLineNotDropped(t *testing.T) {
-	// Regression test: the last line of an overlay was silently dropped
-	// during compositing, causing bottom borders to disappear.
-	term := newMockTerminal(60, 20)
-	tui := newTUI(term)
-
-	// Short background — fewer content lines than the terminal height.
-	tui.AddChild(&staticComponent{lines: []string{
-		"line 0", "line 1", "line 2",
-	}})
-	tui.stopped = false
-
-	// Overlay that returns exactly 5 lines.
-	overlay := &staticComponent{lines: []string{
-		"TOP-BORDER",
-		"content-a",
-		"content-b",
-		"content-c",
-		"BOTTOM-BORDER",
-	}}
-	tui.ShowOverlay(overlay, &OverlayOptions{
-		Width:  SizeAbs(20),
-		Anchor: AnchorTopRight,
-		Margin: OverlayMargin{Top: 1, Right: 1},
-	})
-
-	snap := snapshotRenderedLines(tui, term)
-	golden.Assert(t, snap, "overlay_last_line.golden")
-}
-
-func TestOverlayLastLineWithScrolling(t *testing.T) {
-	// Same test but with content that fills the terminal, forcing viewport
-	// calculations.
-	term := newMockTerminal(60, 12)
-	tui := newTUI(term)
-
-	var bgLines []string
-	for i := range 15 {
-		bgLines = append(bgLines, fmt.Sprintf("bg line %d", i))
-	}
-	tui.AddChild(&staticComponent{lines: bgLines})
-	tui.stopped = false
-
-	overlay := &staticComponent{lines: []string{
-		"TOP-BORDER",
-		"content-a",
-		"content-b",
-		"content-c",
-		"BOTTOM-BORDER",
-	}}
-	tui.ShowOverlay(overlay, &OverlayOptions{
-		Width:  SizeAbs(20),
-		Anchor: AnchorTopRight,
-		Margin: OverlayMargin{Top: 1, Right: 1},
-	})
-
-	snap := snapshotRenderedLines(tui, term)
-	golden.Assert(t, snap, "overlay_last_line_scrolling.golden")
-}
-
-func TestOverlayTwoOverlaysLastLine(t *testing.T) {
-	// Two overlays simultaneously (like completion menu + detail bubble).
-	term := newMockTerminal(60, 20)
-	tui := newTUI(term)
-
-	tui.AddChild(&staticComponent{lines: []string{
-		"line 0", "line 1", "line 2", "line 3", "line 4",
-	}})
-	tui.stopped = false
-
-	// Completion menu overlay (content-relative, above input).
-	menu := &staticComponent{lines: []string{"menu-a", "menu-b", "menu-c"}}
-	tui.ShowOverlay(menu, &OverlayOptions{
-		Width:           SizeAbs(15),
-		Anchor:          AnchorBottomLeft,
-		ContentRelative: true,
-		OffsetY:         -1,
-	})
-
-	// Detail bubble overlay (viewport-relative, top-right).
-	detail := &staticComponent{lines: []string{
-		"TOP-BORDER",
-		"content-a",
-		"content-b",
-		"BOTTOM-BORDER",
-	}}
-	tui.ShowOverlay(detail, &OverlayOptions{
-		Width:  SizeAbs(20),
-		Anchor: AnchorTopRight,
-		Margin: OverlayMargin{Top: 1, Right: 1},
-	})
-
-	snap := snapshotRenderedLines(tui, term)
-	golden.Assert(t, snap, "overlay_two_overlays.golden")
-}
-
-func TestOverlayAtBottomOfViewport(t *testing.T) {
-	// Overlay positioned near the bottom of the viewport when content
-	// causes scrolling. The bottom border could get clipped if the overlay
-	// extends past the working area.
-	term := newMockTerminal(60, 10)
-	tui := newTUI(term)
-
-	// Content that exceeds terminal height.
-	var bgLines []string
-	for i := range 8 {
-		bgLines = append(bgLines, fmt.Sprintf("bg line %d", i))
-	}
-	tui.AddChild(&staticComponent{lines: bgLines})
-	tui.stopped = false
-
-	// Tall overlay anchored at the top — should extend most of the viewport.
-	overlay := &staticComponent{lines: []string{
-		"╭───────────────╮",
-		"│ line 1        │",
-		"│ line 2        │",
-		"│ line 3        │",
-		"│ line 4        │",
-		"│ line 5        │",
-		"│ line 6        │",
-		"│ line 7        │",
-		"╰───────────────╯",
-	}}
-	tui.ShowOverlay(overlay, &OverlayOptions{
-		Width:  SizeAbs(18),
-		Anchor: AnchorTopRight,
-		Margin: OverlayMargin{Top: 0, Right: 1},
-	})
-
-	snap := snapshotRenderedLines(tui, term)
-	golden.Assert(t, snap, "overlay_at_bottom_viewport.golden")
-}
-
-func TestOverlayTallerThanViewport(t *testing.T) {
-	// Overlay is taller than the terminal. The overlay system must clamp
-	// and the last visible line should still appear.
-	term := newMockTerminal(60, 8)
-	tui := newTUI(term)
-
-	tui.AddChild(&staticComponent{lines: []string{
-		"bg 0", "bg 1", "bg 2", "bg 3",
-	}})
-	tui.stopped = false
-
-	// 12-line overlay in an 8-row terminal.
-	overlay := &staticComponent{lines: []string{
-		"╭───────────────╮",
-		"│ line 1        │",
-		"│ line 2        │",
-		"│ line 3        │",
-		"│ line 4        │",
-		"│ line 5        │",
-		"│ line 6        │",
-		"│ line 7        │",
-		"│ line 8        │",
-		"│ line 9        │",
-		"│ line 10       │",
-		"╰───────────────╯",
-	}}
-	tui.ShowOverlay(overlay, &OverlayOptions{
-		Width:  SizeAbs(18),
-		Anchor: AnchorTopLeft,
-	})
-
-	snap := snapshotRenderedLines(tui, term)
-	golden.Assert(t, snap, "overlay_taller_than_viewport.golden")
-}
-
-func TestOverlayBorderedBoxWidthMismatch(t *testing.T) {
-	// Reproduces the real detail bubble bug: content is prepared for
-	// ctx.Width-2 columns, but lipgloss Width(n) means TOTAL width = n
-	// (including borders), so the inner area is actually n-2. Long content
-	// lines get wrapped by lipgloss, adding extra height, which causes
-	// the overlay truncation to chop the bottom border.
-	term := newMockTerminal(80, 24)
-	tui := newTUI(term)
-
-	var bgLines []string
-	for i := range 15 {
-		bgLines = append(bgLines, fmt.Sprintf("content line %d", i))
-	}
-	tui.AddChild(&staticComponent{lines: bgLines})
-	tui.stopped = false
-
-	// This mimics the detailBubble.Render pattern. lipgloss Width(n) is the
-	// TOTAL width including borders, so content must be wrapped to n-2.
-	overlay := &callbackComponent{render: func(ctx RenderContext) RenderResult {
-		borderStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63"))
-
-		contentW := max(8, ctx.Width-2)
-
-		var lines []string
-		lines = append(lines, "Title")
-		for i := range 8 {
-			// Use wordWrap-style content that fits contentW.
-			line := fmt.Sprintf("detail line %d with extra text padding here", i)
-			if len(line) > contentW {
-				line = line[:contentW]
-			}
-			lines = append(lines, line)
-		}
-
-		// Truncate inner content to fit height budget (2 for borders).
-		if ctx.Height > 0 && len(lines) > ctx.Height-2 {
-			maxInner := ctx.Height - 2
-			if maxInner > 1 {
-				lines = lines[:maxInner-1]
-				lines = append(lines, "...")
-			}
-		}
-
-		inner := strings.Join(lines, "\n")
-		box := borderStyle.Width(ctx.Width).Render(inner)
-		return RenderResult{Lines: strings.Split(box, "\n")}
-	}}
-
-	tui.ShowOverlay(overlay, &OverlayOptions{
-		Width:     SizeAbs(35),
-		MaxHeight: SizeAbs(14),
-		Anchor:    AnchorTopRight,
-		Margin:    OverlayMargin{Top: 1, Right: 1},
-	})
-
-	snap := snapshotRenderedLines(tui, term)
-	golden.Assert(t, snap, "overlay_bordered_width_mismatch.golden")
 }
 
 // compoComponent embeds Compo for automatic caching. Call Update() to
@@ -1099,7 +725,7 @@ func (c *compoComponent) Render(ctx RenderContext) RenderResult {
 
 func TestCompoSkipsRenderWhenClean(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 
 	// Two children with Compo: one finalized, one changing.
 	finalized := &compoComponent{lines: []string{"old line 1", "old line 2"}}
@@ -1107,16 +733,15 @@ func TestCompoSkipsRenderWhenClean(t *testing.T) {
 	active := &staticComponent{lines: []string{"input> "}}
 	tui.AddChild(finalized)
 	tui.AddChild(active)
-	tui.stopped = false
 
 	// First render — finalized is dirty, renders.
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 1, finalized.renderCount)
 
 	// Second render — finalized is clean (nobody called Update).
 	// Render should be SKIPPED entirely (renderCount stays 1).
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 1, finalized.renderCount, "clean Compo should skip Render")
 
 	// The output should still contain finalized's content (from cache).
@@ -1161,7 +786,7 @@ func TestCompoCachedChildNoRepaint(t *testing.T) {
 	// Verify that a cached Compo child's line range is not repainted
 	// when only other children change.
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 
 	clean := &compoComponent{lines: []string{"stable-1", "stable-2"}}
 	clean.Update()
@@ -1169,16 +794,15 @@ func TestCompoCachedChildNoRepaint(t *testing.T) {
 	changing.Update()
 	tui.AddChild(clean)
 	tui.AddChild(changing)
-	tui.stopped = false
 
 	// First render (full).
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// Now only changing child is updated.
 	changing.lines = []string{"v2"}
 	changing.Update()
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 
 	out := term.written.String()
 	// The changing child should be repainted.
@@ -1190,13 +814,12 @@ func TestCompoCachedChildNoRepaint(t *testing.T) {
 
 func TestUpdatePropagatesAndRequestsRender(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	child := &compoComponent{lines: []string{"hello"}}
 	child.Update()
 	tui.AddChild(child)
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// Drain the render channel.
 	select {
@@ -1219,11 +842,10 @@ func TestUpdatePropagatesAndRequestsRender(t *testing.T) {
 
 func TestForceRender(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 	tui.AddChild(&staticComponent{lines: []string{"content"}})
-	tui.stopped = false
 
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 1, tui.FullRedraws())
 
 	// Force re-render should do a full redraw even with no changes.
@@ -1235,7 +857,7 @@ func TestForceRender(t *testing.T) {
 	tui.previousViewportTop = 0
 
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 2, tui.FullRedraws())
 }
 
@@ -1245,25 +867,24 @@ func TestFirstRenderClearsExistingContent(t *testing.T) {
 	// before writing so that leftover terminal content from the previous
 	// render doesn't bleed through.
 	term := newMockTerminal(80, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	// First render with a long line.
 	long := &staticComponent{lines: []string{"Loading Dagger module from /home/user/project..."}}
 	long.Update()
 	tui.AddChild(long)
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// Remove all children → empty render.
 	tui.RemoveChild(long)
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// Add new content that is shorter than the old line.
 	short := &staticComponent{lines: []string{"Welcome v0.1"}}
 	short.Update()
 	tui.AddChild(short)
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 
 	out := term.written.String()
 	// The render must include a line-clear escape before the new content
@@ -1282,8 +903,7 @@ func TestConcurrentUpdateNotLost(t *testing.T) {
 	// records the generation it checked, and any concurrent Update()
 	// increments past it.
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	// A component whose Render calls Update() on itself to simulate
 	// a concurrent update during rendering. On first render it returns
@@ -1295,7 +915,7 @@ func TestConcurrentUpdateNotLost(t *testing.T) {
 	// First render: Render() returns "before", then sets value="after"
 	// and calls Update(). The generation counter advances past what
 	// renderComponent recorded, so the component stays dirty.
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// The component should still be dirty after the first render
 	// because Update() was called during Render().
@@ -1305,7 +925,7 @@ func TestConcurrentUpdateNotLost(t *testing.T) {
 
 	// Second render should pick up the new value.
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 	out := term.written.String()
 	assert.Contains(t, out, "after",
 		"second render should reflect the update made during first render")
@@ -1370,7 +990,7 @@ func TestCachedLinesNotMutatedBySegmentReset(t *testing.T) {
 	// frames see double-reset strings that never match, causing
 	// spurious full redraws.
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
+	tui := New(term)
 
 	cached := &compoComponent{lines: []string{"stable"}}
 	cached.Update()
@@ -1378,17 +998,16 @@ func TestCachedLinesNotMutatedBySegmentReset(t *testing.T) {
 	changing.Update()
 	tui.AddChild(cached)
 	tui.AddChild(changing)
-	tui.stopped = false
 
 	// First render.
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 1, tui.FullRedraws())
 
 	// Change only the second component. The first is cached.
 	changing.lines = []string{"v2"}
 	changing.Update()
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// Should NOT be a full redraw — cached component's line 0
 	// should be identical across frames.
@@ -1401,14 +1020,13 @@ func TestCachedLinesNotMutatedBySegmentReset(t *testing.T) {
 	changing.lines = []string{"v3"}
 	changing.Update()
 	term.reset()
-	renderSync(tui)
+	tui.RenderOnce()
 	assert.Equal(t, 1, tui.FullRedraws(), "still no full redraw on third frame")
 }
 
 func TestHasKittyKeyboard(t *testing.T) {
 	term := newMockTerminal(80, 24)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	// Before any response, HasKittyKeyboard is false.
 	assert.False(t, tui.HasKittyKeyboard())
@@ -1449,8 +1067,7 @@ func (c *lifecycleComponent) Render(ctx RenderContext) RenderResult {
 
 func TestMountOnAddChild(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -1464,8 +1081,7 @@ func TestMountOnAddChild(t *testing.T) {
 
 func TestDismountOnRemoveChild(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -1487,8 +1103,7 @@ func TestMountPropagatesDownTree(t *testing.T) {
 	assert.False(t, child.mounted, "child should not be mounted before parent is mounted")
 
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 	tui.AddChild(container) // now container (and child) get mounted
 	assert.True(t, child.mounted, "child should be mounted when parent is mounted")
 	assert.Equal(t, 1, child.mountCount)
@@ -1496,8 +1111,7 @@ func TestMountPropagatesDownTree(t *testing.T) {
 
 func TestDismountPropagatesDownTree(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	child := &lifecycleComponent{lines: []string{"child"}}
 	child.Update()
@@ -1512,8 +1126,7 @@ func TestDismountPropagatesDownTree(t *testing.T) {
 
 func TestSlotMountDismount(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	a := &lifecycleComponent{lines: []string{"a"}}
 	a.Update()
@@ -1534,8 +1147,7 @@ func TestSlotMountDismount(t *testing.T) {
 
 func TestMountContextCancelledOnDismount(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -1565,8 +1177,7 @@ func TestMountContextCancelledOnDismount(t *testing.T) {
 
 func TestContainerClearDismountsAll(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	a := &lifecycleComponent{lines: []string{"a"}}
 	a.Update()
@@ -1624,8 +1235,7 @@ func (c *interactiveContainer) HandleKeyPress(_ EventContext, ev uv.KeyPressEven
 
 func TestBubblingToParent(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	// Build tree: TUI → parent (interactive container) → child.
 	parent := &interactiveContainer{consume: false}
@@ -1647,8 +1257,7 @@ func TestBubblingToParent(t *testing.T) {
 
 func TestBubblingConsumed(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	parent := &interactiveContainer{consume: false}
 	child := &interactiveComponent{lines: []string{"child"}, consume: true} // consumes
@@ -1670,8 +1279,7 @@ func TestBubblingNonInteractiveFocused(t *testing.T) {
 	// When the focused component doesn't implement Interactive,
 	// the event should still bubble to Interactive ancestors.
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	parent := &interactiveContainer{consume: true}
 	// staticComponent doesn't implement Interactive.
@@ -1691,8 +1299,7 @@ func TestBubblingNonInteractiveFocused(t *testing.T) {
 
 func TestSpinnerMountDismountLifecycle(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	sp := NewSpinner()
 	slot := NewSlot(nil)
@@ -1740,8 +1347,7 @@ func (m *mouseComponent) HandleMouse(ctx EventContext, ev MouseEvent) bool {
 
 func TestScanMouseZones_MarkersStrippedAndZonesDetected(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	mc := &mouseComponent{lines: []string{"hello"}, consumeMouse: true}
 	// Get a marker ID allocated.
@@ -1771,13 +1377,12 @@ func TestScanMouseZones_MarkersStrippedAndZonesDetected(t *testing.T) {
 
 func TestScanMouseZones_FullLineComponent(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	mc := &mouseComponent{lines: []string{"hello", "world"}, consumeMouse: true}
 	tui.AddChild(mc)
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// The Container auto-marks MouseEnabled children, so zones should exist.
 	require.NotEmpty(t, tui.mouseZones, "expected at least one mouse zone")
@@ -1800,8 +1405,7 @@ func TestScanMouseZones_FullLineComponent(t *testing.T) {
 
 func TestScanMouseZones_InlineMark(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	// An attached (inline) component.
 	inline := &mouseComponent{lines: nil, consumeMouse: true}
@@ -1820,7 +1424,7 @@ func TestScanMouseZones_InlineMark(t *testing.T) {
 	}
 	tui.attachedComps[inline] = struct{}{}
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// Find the inline zone.
 	var found *mouseZone
@@ -1851,13 +1455,12 @@ func (p *markingParent) Render(ctx RenderContext) RenderResult {
 
 func TestScanMouseZones_StripsMarkers(t *testing.T) {
 	term := newMockTerminal(40, 10)
-	tui := newTUI(term)
-	tui.stopped = false
+	tui := New(term)
 
 	mc := &mouseComponent{lines: []string{"hello"}, consumeMouse: true}
 	tui.AddChild(mc)
 
-	renderSync(tui)
+	tui.RenderOnce()
 
 	// The terminal output should not contain any zone markers.
 	out := term.written.String()
