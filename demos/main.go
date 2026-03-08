@@ -9,6 +9,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -39,10 +40,19 @@ var demoList = []demoEntry{
 }
 
 func main() {
-	if len(os.Args) >= 2 {
-		name := os.Args[1]
-		// Shift args so flag.Parse() in sub-demos sees the right flags.
-		os.Args = append(os.Args[:1], os.Args[2:]...)
+	debugAddr := flag.String("debug", "", "address to serve pprof/debug handlers (e.g. :6060)")
+	flag.Parse()
+
+	if *debugAddr != "" {
+		if err := setupDebugHandlers(*debugAddr); err != nil {
+			fmt.Fprintf(os.Stderr, "debug handlers: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	args := flag.Args()
+	if len(args) >= 1 {
+		name := args[0]
 		for _, d := range demoList {
 			if d.name == name {
 				d.run()
