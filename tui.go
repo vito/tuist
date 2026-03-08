@@ -209,7 +209,6 @@ type TUI struct {
 	markerIDs       map[int64]Component    // reused marker ID → component lookup
 	trackedZones    map[int64]*mouseZone   // reused open-marker tracker
 	ansiParser      *ansi.Parser           // reused ANSI parser for zone scanning
-	attachedComps   map[Component]struct{} // components connected via Attach
 	lastMouseTarget Component              // for hover enter/leave tracking
 
 	debugWriter io.Writer    // if non-nil, render stats are logged here
@@ -857,11 +856,6 @@ func (t *TUI) rebuildMarkerMap() {
 		clear(t.markerIDs)
 	}
 	t.collectMarkers(&t.Container, t.markerIDs)
-	for comp := range t.attachedComps {
-		if id := comp.compo().markerID.Load(); id != 0 {
-			t.markerIDs[id] = comp
-		}
-	}
 }
 
 func (t *TUI) collectMarkers(comp Component, m map[int64]Component) {

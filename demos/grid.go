@@ -96,14 +96,8 @@ func newGrid() *grid {
 	return g
 }
 
-func (g *grid) OnMount(ctx tuist.EventContext) {
-	for _, c := range g.cells {
-		ctx.Attach(c)
-	}
-}
-
 // HandleKeyPress handles global keys and arrow navigation. Cell key
-// events bubble here because cells are Attached with the grid as parent.
+// events bubble here because cells are rendered via RenderChild.
 func (g *grid) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	switch {
@@ -186,6 +180,7 @@ func (g *grid) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	g.rows = max(h/cellH, 1)
 	total := min(g.cols*g.rows, maxCells)
 
+	cellCtx := tuist.RenderContext{Width: cellW, Height: cellH, ScreenHeight: ctx.ScreenHeight}
 	var allLines []string
 	for r := range g.rows {
 		var rowCells []string
@@ -194,9 +189,8 @@ func (g *grid) Render(ctx tuist.RenderContext) tuist.RenderResult {
 			if idx >= total {
 				break
 			}
-			cell := g.cells[idx]
-			rendered := tuist.Mark(cell, cell.renderBox(cellW, cellH, r, c))
-			rowCells = append(rowCells, rendered)
+			result := g.RenderChild(g.cells[idx], cellCtx)
+			rowCells = append(rowCells, strings.Join(result.Lines, "\n"))
 		}
 		if len(rowCells) == 0 {
 			continue
@@ -262,14 +256,15 @@ type cell struct {
 	cursorC int // cursor col within cell (zone-relative)
 }
 
-// Render returns empty — cells render inline via renderBox + Mark.
-func (c *cell) Render(_ tuist.RenderContext) tuist.RenderResult {
-	return tuist.RenderResult{}
-}
-
 var curStyle = lipgloss.NewStyle().Background(lipgloss.Color("255")).Foreground(lipgloss.Color("0"))
 
-func (c *cell) renderBox(w, h, row, col int) string {
+// Render produces the colored rectangle for this cell, including a
+// cursor highlight when the mouse hovers over it.
+func (c *cell) Render(ctx tuist.RenderContext) tuist.RenderResult {
+	row := c.index / c.grid.cols
+	col := c.index % c.grid.cols
+	w, h := ctx.Width, ctx.Height
+
 	bg, fg := c.colors(row, col)
 	label := fmt.Sprintf("%d,%d", row, col)
 	styledLabel := lipgloss.NewStyle().Foreground(fg).Background(bg).Bold(c.focused).Render(label)
@@ -279,17 +274,17 @@ func (c *cell) renderBox(w, h, row, col int) string {
 		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Background(bg)),
 	)
 
+	lines := strings.Split(box, "\n")
+
 	// Composite the cursor square if hovering.
 	if c.hovered && c.cursorR >= 0 && c.cursorC >= 0 && c.cursorC < w {
-		lines := strings.Split(box, "\n")
 		if c.cursorR < len(lines) {
 			cursor := curStyle.Render(" ")
 			lines[c.cursorR] = tuist.CompositeLineAt(lines[c.cursorR], cursor, c.cursorC, 1, w)
 		}
-		box = strings.Join(lines, "\n")
 	}
 
-	return box
+	return tuist.RenderResult{Lines: lines}
 }
 
 func (c *cell) colors(row, col int) (color.Color, color.Color) {
@@ -315,14 +310,14 @@ func (c *cell) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) bool {
 		if ev.Mouse().Button == uv.MouseLeft {
 			c.grid.selected = c.index
 			ctx.SetFocus(c)
-			c.grid.Update()
+			c.Update() // propagates to grid
 			return true
 		}
 	case uv.MouseMotionEvent:
 		if c.cursorR != ev.Row || c.cursorC != ev.Col {
 			c.cursorR = ev.Row
 			c.cursorC = ev.Col
-			c.grid.Update()
+			c.Update() // propagates to grid
 		}
 		return true
 	}
@@ -337,7 +332,7 @@ func (c *cell) SetHovered(_ tuist.EventContext, hovered bool) {
 			c.cursorR = -1
 			c.cursorC = -1
 		}
-		c.grid.Update()
+		c.Update() // propagates to grid
 	}
 }
 
@@ -345,7 +340,7 @@ func (c *cell) SetHovered(_ tuist.EventContext, hovered bool) {
 func (c *cell) SetFocused(_ tuist.EventContext, focused bool) {
 	if focused != c.focused {
 		c.focused = focused
-		c.grid.Update()
+		c.Update() // propagates to grid
 	}
 }
 

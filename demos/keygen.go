@@ -130,18 +130,15 @@ func runKeygen(duration time.Duration, cpuProfile, heapProfile string, bench boo
 
 // inlineInput is a reusable inline numeric editor that implements
 // tuist.MouseEnabled, tuist.Hoverable, tuist.Focusable, and
-// tuist.Interactive. It is Attached (not tree-mounted) to the TUI and
-// receives mouse events via InlineRegion declarations in the parent's
-// RenderResult.
-//
-// The parent uses [LineBuilder.Comp] to embed the input's rendered string
-// into a line — no manual position tracking or event forwarding needed.
+// tuist.Interactive. The parent renders it inline via
+// [Compo.RenderChildInline], which handles mounting, zone marking,
+// and update propagation automatically.
 type inlineInput struct {
 	tuist.Compo
 
 	value  *float64     // pointer to the backing value
 	format string       // printf format for display (e.g. "%.12f")
-	chrome *chromeBar   // parent — for Update()
+	chrome *chromeBar   // parent — for accessing fractal
 	peer   *inlineInput // other input — for Tab switching
 
 	hovered bool
@@ -150,22 +147,21 @@ type inlineInput struct {
 	cursor  int
 }
 
-// Render satisfies Component but returns nothing — the input renders
-// inline via RenderInline, embedded in the parent's line.
+// Render produces the styled inline text for this input. The parent
+// embeds it within a line via [Compo.RenderChildInline].
 func (inp *inlineInput) Render(_ tuist.RenderContext) tuist.RenderResult {
-	return tuist.RenderResult{}
-}
-
-// RenderInline returns the styled string for embedding in a LineBuilder.
-func (inp *inlineInput) RenderInline() string {
+	var content string
 	if inp.editing {
-		return inp.renderEdit()
+		content = inp.renderEdit()
+	} else {
+		s := fmt.Sprintf(inp.format, *inp.value)
+		if inp.hovered {
+			content = coordHoverStyle.Render(s)
+		} else {
+			content = topValueStyle.Render(s)
+		}
 	}
-	s := fmt.Sprintf(inp.format, *inp.value)
-	if inp.hovered {
-		return coordHoverStyle.Render(s)
-	}
-	return topValueStyle.Render(s)
+	return tuist.RenderResult{Lines: []string{content}}
 }
 
 func (inp *inlineInput) renderEdit() string {
@@ -212,7 +208,7 @@ func (inp *inlineInput) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent)
 func (inp *inlineInput) SetHovered(_ tuist.EventContext, hovered bool) {
 	if hovered != inp.hovered {
 		inp.hovered = hovered
-		inp.chrome.Update()
+		inp.Update() // propagates to chrome
 	}
 }
 
@@ -237,42 +233,42 @@ func (inp *inlineInput) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEve
 	case key.Code == uv.KeyEscape:
 		inp.editing = false
 		inp.buf = nil
-		inp.chrome.Update()
+		inp.Update()
 		ctx.SetFocus(inp.chrome.fractal)
 	case key.Code == uv.KeyBackspace:
 		if inp.cursor > 0 {
 			inp.buf = append(inp.buf[:inp.cursor-1], inp.buf[inp.cursor:]...)
 			inp.cursor--
-			inp.chrome.Update()
+			inp.Update()
 		}
 	case key.Code == uv.KeyDelete:
 		if inp.cursor < len(inp.buf) {
 			inp.buf = append(inp.buf[:inp.cursor], inp.buf[inp.cursor+1:]...)
-			inp.chrome.Update()
+			inp.Update()
 		}
 	case key.Code == uv.KeyLeft && key.Mod == 0:
 		if inp.cursor > 0 {
 			inp.cursor--
-			inp.chrome.Update()
+			inp.Update()
 		}
 	case key.Code == uv.KeyRight && key.Mod == 0:
 		if inp.cursor < len(inp.buf) {
 			inp.cursor++
-			inp.chrome.Update()
+			inp.Update()
 		}
 	case key.Code == 'a' && key.Mod == uv.ModCtrl, key.Code == uv.KeyHome:
 		inp.cursor = 0
-		inp.chrome.Update()
+		inp.Update()
 	case key.Code == 'e' && key.Mod == uv.ModCtrl, key.Code == uv.KeyEnd:
 		inp.cursor = len(inp.buf)
-		inp.chrome.Update()
+		inp.Update()
 	case key.Code == 'u' && key.Mod == uv.ModCtrl:
 		inp.buf = inp.buf[inp.cursor:]
 		inp.cursor = 0
-		inp.chrome.Update()
+		inp.Update()
 	case key.Code == 'k' && key.Mod == uv.ModCtrl:
 		inp.buf = inp.buf[:inp.cursor]
-		inp.chrome.Update()
+		inp.Update()
 	case key.Code == uv.KeyTab:
 		inp.applyEdit()
 		inp.peer.startEdit(ctx)
@@ -288,7 +284,7 @@ func (inp *inlineInput) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEve
 					inp.cursor++
 				}
 			}
-			inp.chrome.Update()
+			inp.Update()
 		}
 	}
 	return true // consume all keys while editing
@@ -300,7 +296,7 @@ func (inp *inlineInput) startEdit(ctx tuist.EventContext) {
 	inp.cursor = len(inp.buf)
 	inp.hovered = false
 	ctx.SetFocus(inp) // input receives key events directly
-	inp.chrome.Update()
+	inp.Update()
 }
 
 // applyEdit validates and applies the edit buffer to the backing value.
@@ -316,7 +312,7 @@ func (inp *inlineInput) applyEdit() {
 	}
 	inp.editing = false
 	inp.buf = nil
-	inp.chrome.Update()
+	inp.Update()
 }
 
 // isCoordRune returns true for characters valid in a floating-point literal.
@@ -619,14 +615,8 @@ func newChromeBar(fractal *fractalView) *chromeBar {
 	return c
 }
 
-func (c *chromeBar) OnMount(ctx tuist.EventContext) {
+func (c *chromeBar) OnMount(_ tuist.EventContext) {
 	c.start = time.Now()
-	ctx.Attach(c.reInput)
-	ctx.Attach(c.imInput)
-}
-
-func (c *chromeBar) OnDismount() {
-	// Detach is handled implicitly — the TUI clears references on stop.
 }
 
 var (
@@ -664,9 +654,9 @@ func (c *chromeBar) Render(ctx tuist.RenderContext) tuist.RenderResult {
 
 	title := topTitleStyle.Render(" ◆ MANDELBROT ")
 	reLabel := topLabelStyle.Render(" re ")
-	reValue := tuist.Mark(c.reInput, c.reInput.RenderInline())
+	reValue := c.RenderChildInline(c.reInput, ctx)
 	imLabel := topLabelStyle.Render("  im ")
-	imValue := tuist.Mark(c.imInput, c.imInput.RenderInline())
+	imValue := c.RenderChildInline(c.imInput, ctx)
 	zoom := topLabelStyle.Render("  zoom ") + topValueStyle.Render(fmt.Sprintf("%.2e", 3.0/f.scale()))
 	iter := topLabelStyle.Render("  iter ") + topValueStyle.Render(fmt.Sprintf("%d", min(64+f.frame/10, 256)))
 	state := ""

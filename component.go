@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -88,65 +89,7 @@ func (ctx EventContext) SetDebugWriter(w io.Writer) {
 	ctx.tui.debugWriter = w
 }
 
-// Attach connects a component to the TUI for event dispatch and
-// [Compo.Update] without adding it to the render tree. This is used for
-// inline components whose mouse regions are declared via [InlineRegion]
-// in a parent's [RenderResult].
-//
-// The attached component can receive focus (via [SetFocus]), fire
-// [Compo.Update], and participate in hover tracking — just like a
-// tree-mounted component. The parent pointer is set to the source
-// component's Compo so that event bubbling works.
-//
-// Call [Detach] when the component is no longer needed (typically in
-// the parent's OnDismount).
-func (ctx EventContext) Attach(comp Component) {
-	cp := comp.compo()
-	cp.self = comp
-	cp.tui = ctx.tui
-	cp.parent = ctx.source.compo()
 
-	// Create a mount context tied to the parent's lifetime.
-	if ctx.source.compo().mountCtx != nil {
-		cp.mountCtx, cp.mountCancel = context.WithCancel(ctx.source.compo().mountCtx)
-	}
-
-	// Track for marker map lookups.
-	if ctx.tui.attachedComps == nil {
-		ctx.tui.attachedComps = make(map[Component]struct{})
-	}
-	ctx.tui.attachedComps[comp] = struct{}{}
-
-	if _, ok := comp.(MouseEnabled); ok {
-		ctx.tui.EnableMouse()
-	}
-	if m, ok := comp.(Mounter); ok {
-		m.OnMount(EventContext{
-			Context: cp.mountCtx,
-			tui:     ctx.tui,
-			source:  comp,
-		})
-	}
-}
-
-// Detach disconnects a previously [Attach]ed component from the TUI.
-func (ctx EventContext) Detach(comp Component) {
-	cp := comp.compo()
-	if cp.mountCancel != nil {
-		cp.mountCancel()
-	}
-	if d, ok := comp.(Dismounter); ok {
-		d.OnDismount()
-	}
-	if _, ok := comp.(MouseEnabled); ok && cp.tui != nil {
-		cp.tui.DisableMouse()
-	}
-	delete(ctx.tui.attachedComps, comp)
-	cp.tui = nil
-	cp.parent = nil
-	cp.mountCtx = nil
-	cp.mountCancel = nil
-}
 
 // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -235,24 +178,6 @@ func markerOf(comp Component) string {
 	return "\x1b[" + strconv.FormatInt(id, 10) + "z"
 }
 
-// Mark wraps content with invisible zone markers for a component. The
-// framework scans rendered output for these markers to build a mouse
-// hit map, enabling positional dispatch to the marked component.
-//
-// Use Mark to make inline content (e.g. a clickable value within a
-// status bar) receive mouse events directly. For full-line components
-// in the render tree, marking is automatic — you don't need to call
-// Mark yourself.
-//
-//	// In parent's Render:
-//	re := tuist.Mark(c.reInput, c.reInput.RenderInline())
-//	im := tuist.Mark(c.imInput, c.imInput.RenderInline())
-//	top := title + " re " + re + "  im " + im
-func Mark(comp Component, content string) string {
-	m := markerOf(comp)
-	return m + content + m
-}
-
 func markLines(comp Component, lines []string) []string {
 	if len(lines) == 0 {
 		return lines
@@ -310,8 +235,7 @@ type Compo struct {
 	// dispatch, and by dismountTree for lifecycle cleanup.
 	//
 	// MouseEnabled inline children are auto-mounted on first encounter
-	// so they participate in mouse tracking and zone dispatch without
-	// requiring explicit Attach calls.
+	// so they participate in mouse tracking and zone dispatch.
 	renderChildren []Component
 
 	// componentStats is propagated from parent to child during rendering
@@ -430,6 +354,26 @@ func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 		r.Lines = markLines(child, r.Lines)
 	}
 	return r
+}
+
+// RenderChildInline renders a child component and returns the result as
+// a single string suitable for inline embedding within a parent's line.
+// For MouseEnabled children, the string is automatically wrapped with
+// zone markers for positional mouse dispatch.
+//
+// This is a convenience wrapper around [RenderChild] for components that
+// produce content meant to be composed horizontally within a parent's
+// rendered line:
+//
+//	func (c *Chrome) Render(ctx tuist.RenderContext) tuist.RenderResult {
+//	    re := c.RenderChildInline(c.reInput, ctx)
+//	    im := c.RenderChildInline(c.imInput, ctx)
+//	    top := title + " re " + re + "  im " + im
+//	    return tuist.RenderResult{Lines: []string{top}}
+//	}
+func (c *Compo) RenderChildInline(child Component, ctx RenderContext) string {
+	r := c.RenderChild(child, ctx)
+	return strings.Join(r.Lines, "")
 }
 
 // renderComponent renders a child component, using its Compo cache when

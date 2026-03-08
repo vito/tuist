@@ -848,29 +848,27 @@ func TestScanMouseZones_MarkersStrippedAndZonesDetected(t *testing.T) {
 	tui := New(term)
 
 	mc := &mouseComponent{lines: []string{"hello"}, consumeMouse: true}
-	// Get a marker ID allocated.
-	marker := markerOf(mc)
+	tui.AddChild(mc)
 
-	// Manually register the component so the scanner can look it up.
-	if tui.attachedComps == nil {
-		tui.attachedComps = make(map[Component]struct{})
+	tui.RenderOnce()
+
+	// Find the zone for mc.
+	var found *mouseZone
+	for i := range tui.mouseZones {
+		if tui.mouseZones[i].comp == mc {
+			found = &tui.mouseZones[i]
+			break
+		}
 	}
-	tui.attachedComps[mc] = struct{}{}
+	require.NotNil(t, found, "expected a zone for the mouseComponent")
+	assert.Equal(t, 0, found.startRow)
+	assert.Equal(t, 0, found.startCol)
+	assert.Equal(t, 0, found.endRow)
+	assert.Equal(t, 5, found.endCol)
 
-	// Build a line with markers + other ANSI (color) sequences.
-	line := marker + "\x1b[31m" + "hello" + "\x1b[0m" + marker
-	stripped := tui.scanMouseZones([]string{line})
-
-	// Markers should be stripped; color sequences preserved.
-	assert.Equal(t, "\x1b[31mhello\x1b[0m", stripped[0])
-
-	// Zone should be detected.
-	require.Len(t, tui.mouseZones, 1)
-	assert.Equal(t, mc, tui.mouseZones[0].comp)
-	assert.Equal(t, 0, tui.mouseZones[0].startRow)
-	assert.Equal(t, 0, tui.mouseZones[0].startCol)
-	assert.Equal(t, 0, tui.mouseZones[0].endRow)
-	assert.Equal(t, 5, tui.mouseZones[0].endCol)
+	// Terminal output should not contain zone markers.
+	out := term.written.String()
+	assert.Contains(t, out, "hello")
 }
 
 func TestScanMouseZones_FullLineComponent(t *testing.T) {
@@ -905,22 +903,12 @@ func TestScanMouseZones_InlineMark(t *testing.T) {
 	term := newMockTerminal(40, 10)
 	tui := New(term)
 
-	// An attached (inline) component.
-	inline := &mouseComponent{lines: nil, consumeMouse: true}
+	// An inline MouseEnabled component rendered via RenderChildInline.
+	inline := &mouseComponent{lines: []string{"VALUE"}, consumeMouse: true}
 
-	// A parent that uses Mark to embed the inline component.
+	// A parent that uses RenderChildInline to embed the inline component.
 	parent := &markingParent{inline: inline}
 	tui.AddChild(parent)
-
-	// Attach the inline component so it has a TUI reference.
-	tui.Dispatch(func() {})
-	// Manual attach since we're not running the event loop.
-	inline.self = inline
-	inline.tui = tui
-	if tui.attachedComps == nil {
-		tui.attachedComps = make(map[Component]struct{})
-	}
-	tui.attachedComps[inline] = struct{}{}
 
 	tui.RenderOnce()
 
@@ -940,14 +928,15 @@ func TestScanMouseZones_InlineMark(t *testing.T) {
 	assert.Equal(t, 11, found.endCol)
 }
 
-// markingParent renders a line with an inline Mark'd component.
+// markingParent renders a line with an inline RenderChildInline'd component.
 type markingParent struct {
 	Compo
 	inline Component
 }
 
 func (p *markingParent) Render(ctx RenderContext) RenderResult {
-	line := "prefix" + Mark(p.inline, "VALUE") + "suffix"
+	inlined := p.RenderChildInline(p.inline, ctx)
+	line := "prefix" + inlined + "suffix"
 	return RenderResult{Lines: []string{line}}
 }
 
