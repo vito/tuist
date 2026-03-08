@@ -1195,10 +1195,8 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 		t.emitDebugStats(t.debugWriter, stats, compStats, totalStart, memBefore)
 	}
 
-	widthChanged := t.previousWidth != 0 && t.previousWidth != width
-
 	// Full redraw needed?
-	if reason, clear := t.needsFullRedraw(widthChanged, newLines); reason != "" {
+	if reason, clear := t.needsFullRedraw(newLines); reason != "" {
 		stats.FullRedrawReason = reason
 		t.writeFullRedraw(width, height, newLines, cursorPos, stats, clear)
 		emitStats()
@@ -1252,12 +1250,9 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 
 // needsFullRedraw returns (reason, clearScreen) if a full redraw is required,
 // or ("", false) if differential rendering can proceed.
-func (t *TUI) needsFullRedraw(widthChanged bool, newLines []string) (string, bool) {
-	if len(t.previousLines) == 0 && !widthChanged {
+func (t *TUI) needsFullRedraw(newLines []string) (string, bool) {
+	if len(t.previousLines) == 0 {
 		return "first_render", false
-	}
-	if widthChanged {
-		return "width_changed", true
 	}
 	if t.clearOnShrink && len(newLines) < t.maxLinesRendered && len(t.overlayStack) == 0 {
 		return "clear_on_shrink", true

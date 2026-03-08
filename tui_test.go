@@ -71,7 +71,7 @@ func TestFirstRender(t *testing.T) {
 	assert.Contains(t, out, "\x1b[?2026l")
 }
 
-func TestWidthChangeTriggersFullRedraw(t *testing.T) {
+func TestWidthChangeUsesDiffUpdate(t *testing.T) {
 	term := newMockTerminal(40, 10)
 	tui := New(term)
 	tui.AddChild(&staticComponent{lines: []string{"hello"}})
@@ -79,11 +79,13 @@ func TestWidthChangeTriggersFullRedraw(t *testing.T) {
 	tui.RenderOnce()
 	assert.Equal(t, 1, tui.FullRedraws())
 
-	// Simulate resize.
+	// Simulate resize — should use diff update, not full redraw.
+	// This avoids clear+home which causes ghost output when a
+	// scrollbar narrows the terminal by a few characters.
 	term.cols = 60
 	term.reset()
 	tui.RenderOnce()
-	assert.Equal(t, 2, tui.FullRedraws())
+	assert.Equal(t, 1, tui.FullRedraws()) // no additional full redraw
 }
 
 func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
