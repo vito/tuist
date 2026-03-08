@@ -563,7 +563,7 @@ func (c *lifecycleComponent) Render(ctx RenderContext) RenderResult {
 	return RenderResult{Lines: c.lines}
 }
 
-func TestMountOnAddChild(t *testing.T) {
+func TestMountOnFirstRender(t *testing.T) {
 	term := newMockTerminal(40, 10)
 	tui := New(term)
 
@@ -573,6 +573,10 @@ func TestMountOnAddChild(t *testing.T) {
 	assert.Equal(t, 0, comp.mountCount)
 
 	tui.AddChild(comp)
+	// Not mounted yet — mounting is lazy (happens on first render).
+	assert.False(t, comp.mounted)
+
+	tui.RenderOnce()
 	assert.True(t, comp.mounted)
 	assert.Equal(t, 1, comp.mountCount)
 }
@@ -584,26 +588,34 @@ func TestDismountOnRemoveChild(t *testing.T) {
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
 	tui.AddChild(comp)
+	tui.RenderOnce()
 	assert.True(t, comp.mounted)
 
 	tui.RemoveChild(comp)
+	// Not dismounted yet — dismount is lazy (orphan cleanup on re-render).
+	assert.True(t, comp.mounted)
+
+	tui.RenderOnce()
 	assert.False(t, comp.mounted)
 	assert.Equal(t, 1, comp.dismountCount)
 }
 
 func TestMountPropagatesDownTree(t *testing.T) {
 	// Build a subtree, then attach it to the TUI.
-	// Children should be mounted when the parent is mounted.
+	// Children should be mounted on the first render.
 	child := &lifecycleComponent{lines: []string{"child"}}
 	child.Update()
 	container := &Container{}
-	container.AddChild(child) // container is NOT mounted yet
-	assert.False(t, child.mounted, "child should not be mounted before parent is mounted")
+	container.AddChild(child)
+	assert.False(t, child.mounted, "child should not be mounted before rendering")
 
 	term := newMockTerminal(40, 10)
 	tui := New(term)
-	tui.AddChild(container) // now container (and child) get mounted
-	assert.True(t, child.mounted, "child should be mounted when parent is mounted")
+	tui.AddChild(container)
+	assert.False(t, child.mounted, "child should not be mounted before rendering")
+
+	tui.RenderOnce()
+	assert.True(t, child.mounted, "child should be mounted after first render")
 	assert.Equal(t, 1, child.mountCount)
 }
 
@@ -616,9 +628,11 @@ func TestDismountPropagatesDownTree(t *testing.T) {
 	container := &Container{}
 	tui.AddChild(container)
 	container.AddChild(child)
+	tui.RenderOnce()
 	assert.True(t, child.mounted)
 
 	tui.RemoveChild(container)
+	tui.RenderOnce()
 	assert.False(t, child.mounted, "child should be dismounted when parent is removed")
 }
 
@@ -633,12 +647,14 @@ func TestSlotMountDismount(t *testing.T) {
 	slot := NewSlot(a)
 	tui.AddChild(slot)
 
-	assert.True(t, a.mounted, "initial child should be mounted")
+	tui.RenderOnce()
+	assert.True(t, a.mounted, "initial child should be mounted after render")
 	assert.False(t, b.mounted)
 
 	slot.Set(b)
-	assert.False(t, a.mounted, "old child should be dismounted after swap")
-	assert.True(t, b.mounted, "new child should be mounted after swap")
+	tui.RenderOnce()
+	assert.False(t, a.mounted, "old child should be dismounted after render")
+	assert.True(t, b.mounted, "new child should be mounted after render")
 	assert.Equal(t, 1, a.dismountCount)
 	assert.Equal(t, 1, b.mountCount)
 }
@@ -649,13 +665,11 @@ func TestMountContextCancelledOnDismount(t *testing.T) {
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
-
-	var mountCtx EventContext
-	// Test via lifecycleComponent's compo.
 	tui.AddChild(comp)
-	// Grab the mount context from the internal state.
+	tui.RenderOnce()
+
 	assert.NotNil(t, comp.compo().mountCtx)
-	mountCtx = EventContext{Context: comp.compo().mountCtx}
+	mountCtx := comp.compo().mountCtx
 
 	select {
 	case <-mountCtx.Done():
@@ -664,6 +678,7 @@ func TestMountContextCancelledOnDismount(t *testing.T) {
 	}
 
 	tui.RemoveChild(comp)
+	tui.RenderOnce()
 
 	select {
 	case <-mountCtx.Done():
@@ -684,7 +699,12 @@ func TestContainerClearDismountsAll(t *testing.T) {
 	tui.AddChild(a)
 	tui.AddChild(b)
 
+	tui.RenderOnce()
+	assert.True(t, a.mounted)
+	assert.True(t, b.mounted)
+
 	tui.Clear()
+	tui.RenderOnce()
 	assert.False(t, a.mounted)
 	assert.False(t, b.mounted)
 }
@@ -742,6 +762,7 @@ func TestBubblingToParent(t *testing.T) {
 
 	parent.AddChild(child)
 	tui.AddChild(parent)
+	tui.RenderOnce() // mount + wire parent pointers
 
 	tui.SetFocus(child)
 
@@ -763,6 +784,7 @@ func TestBubblingConsumed(t *testing.T) {
 
 	parent.AddChild(child)
 	tui.AddChild(parent)
+	tui.RenderOnce() // mount + wire parent pointers
 	tui.SetFocus(child)
 
 	ev := uv.KeyPressEvent{Code: 'x', Text: "x"}
@@ -786,6 +808,7 @@ func TestBubblingNonInteractiveFocused(t *testing.T) {
 
 	parent.AddChild(child)
 	tui.AddChild(parent)
+	tui.RenderOnce() // mount + wire parent pointers
 	tui.SetFocus(child) // non-Interactive component gets focus
 
 	ev := uv.KeyPressEvent{Code: 'z', Text: "z"}
@@ -806,13 +829,15 @@ func TestSpinnerMountDismountLifecycle(t *testing.T) {
 	// Spinner not in tree yet.
 	assert.Nil(t, sp.compo().mountCtx)
 
-	// Add spinner to slot — should mount and start goroutine.
+	// Add spinner to slot — mounted lazily on render.
 	slot.Set(sp)
+	tui.RenderOnce()
 	assert.NotNil(t, sp.compo().mountCtx)
 
-	// Remove spinner — should dismount and cancel context.
+	// Remove spinner — dismounted on next render.
 	ctx := sp.compo().mountCtx
 	slot.Set(nil)
+	tui.RenderOnce()
 	assert.Nil(t, sp.compo().mountCtx)
 	select {
 	case <-ctx.Done():

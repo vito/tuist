@@ -217,7 +217,7 @@ type Compo struct {
 	renderedGen   int64        // generation when last rendered; render-goroutine only
 	cache         *renderCache // only accessed from the render goroutine
 	parent        *Compo
-	self          Component    // the Component that embeds this Compo; set by setComponentParent
+	self          Component    // the Component that embeds this Compo; set by RenderChild
 	requestRender func()       // set on the root by TUI
 	markerID      atomic.Int64 // unique zone marker ID, lazy-allocated
 
@@ -278,27 +278,6 @@ func (c *Compo) Update() {
 // compo returns the embedded Compo. The unexported method ensures that
 // only types embedding Compo can satisfy the Component interface.
 func (c *Compo) compo() *Compo { return c }
-
-// setComponentParent wires a component into (or out of) the component tree.
-// It handles upward dirty propagation, sets the self reference for input
-// bubbling, and triggers mount/dismount lifecycle hooks when the component
-// enters or leaves a TUI-rooted tree.
-//
-// Managed automatically by Container.AddChild, Slot.Set, and RenderChild.
-func setComponentParent(comp Component, parent *Compo) {
-	cp := comp.compo()
-	wasMounted := cp.tui != nil
-
-	cp.parent = parent
-	cp.self = comp
-
-	shouldBeMounted := parent != nil && parent.tui != nil
-	if wasMounted && !shouldBeMounted {
-		dismountTree(comp)
-	} else if !wasMounted && shouldBeMounted {
-		mountTree(comp, parent.tui)
-	}
-}
 
 // RenderChild renders a child component through this Compo, using the
 // framework's render cache. It also wires the child's parent pointer so
@@ -566,10 +545,10 @@ type Focusable interface {
 // context.Context whose Done() channel is closed when the component is
 // dismounted — use it to bound background goroutine lifetimes.
 //
-// OnMount is called:
-//   - When a component is added to a Container/Slot that is already
-//     mounted (i.e., connected to a TUI).
-//   - When an ancestor is mounted, propagating down to all descendants.
+// OnMount is called lazily during the first render after a component
+// is added to a Container, Slot, or rendered via [RenderChild]. This
+// means OnMount fires on the UI goroutine during the render pass, not
+// immediately when AddChild or Set is called.
 type Mounter interface {
 	OnMount(ctx EventContext)
 }
@@ -585,59 +564,19 @@ type Dismounter interface {
 
 // ── Lifecycle propagation ──────────────────────────────────────────────────
 
-// componentParent is implemented by components that hold children
-// (Container, Slot) so that mount/dismount can propagate recursively.
-type componentParent interface {
-	componentChildren() []Component
-}
-
-// mountTree mounts a component and all its descendants, firing OnMount
-// hooks parent-first. If a component implements MouseEnabled, the TUI's
-// mouse reference count is incremented (enabling terminal mouse reporting
-// when the first such component is mounted).
-func mountTree(comp Component, tui *TUI) {
-	cp := comp.compo()
-	ctx, cancel := context.WithCancel(context.Background())
-	cp.tui = tui
-	cp.mountCtx = ctx
-	cp.mountCancel = cancel
-
-	// Track mouse-enabled components.
-	if _, ok := comp.(MouseEnabled); ok {
-		tui.EnableMouse()
-	}
-
-	if m, ok := comp.(Mounter); ok {
-		ectx := EventContext{
-			Context: ctx,
-			tui:     tui,
-			source:  comp,
-		}
-		m.OnMount(ectx)
-	}
-
-	if p, ok := comp.(componentParent); ok {
-		for _, child := range p.componentChildren() {
-			mountTree(child, tui)
-		}
-	}
-}
-
 // dismountTree dismounts a component and all its descendants, firing
 // OnDismount hooks children-first (leaves before parents) and cancelling
 // mount contexts. If a component implements MouseEnabled, the TUI's
 // mouse reference count is decremented (disabling terminal mouse
 // reporting when the last such component is dismounted).
+//
+// Children are discovered via renderChildren, which is populated by
+// RenderChild during rendering. Container and Slot use RenderChild,
+// so their children appear in renderChildren automatically.
 func dismountTree(comp Component) {
-	if p, ok := comp.(componentParent); ok {
-		for _, child := range p.componentChildren() {
-			dismountTree(child)
-		}
-	}
-
 	cp := comp.compo()
 
-	// Dismount inline children from RenderChild.
+	// Dismount children rendered via RenderChild.
 	for _, child := range cp.renderChildren {
 		if child.compo().tui != nil {
 			dismountTree(child)
@@ -668,36 +607,36 @@ func dismountTree(comp Component) {
 // sequentially (vertical stack). It embeds Compo, so parent containers
 // can cache entire subtrees when nothing changes.
 //
-// Container uses renderComponent for each child, so children with Compo
-// that haven't called Update() are skipped entirely.
+// Children are mounted lazily via [RenderChild] on the first render
+// after being added. Removed children are dismounted when the parent
+// re-renders and they are no longer in the child list (orphan cleanup).
 type Container struct {
 	Compo
 	Children []Component
 }
 
-func (c *Container) componentChildren() []Component { return c.Children }
-
+// AddChild appends a component to the container. The child will be
+// mounted on the next render via [RenderChild].
 func (c *Container) AddChild(comp Component) {
 	c.Children = append(c.Children, comp)
-	setComponentParent(comp, &c.Compo)
 	c.Update()
 }
 
+// RemoveChild removes a component from the container. The child will
+// be dismounted when the container re-renders (orphan cleanup).
 func (c *Container) RemoveChild(comp Component) {
 	for i, ch := range c.Children {
 		if ch == comp {
 			c.Children = append(c.Children[:i], c.Children[i+1:]...)
-			setComponentParent(comp, nil)
 			c.Update()
 			return
 		}
 	}
 }
 
+// Clear removes all children. They will be dismounted when the
+// container re-renders (orphan cleanup).
 func (c *Container) Clear() {
-	for _, ch := range c.Children {
-		setComponentParent(ch, nil)
-	}
 	c.Children = nil
 	c.Update()
 }
@@ -706,18 +645,14 @@ func (c *Container) Render(ctx RenderContext) RenderResult {
 	lines := ctx.Recycle
 	var cursor *CursorPos
 	for _, ch := range c.Children {
-		r := renderComponent(ch, ctx)
+		r := c.RenderChild(ch, ctx)
 		if r.Cursor != nil {
 			cursor = &CursorPos{
 				Row: len(lines) + r.Cursor.Row,
 				Col: r.Cursor.Col,
 			}
 		}
-		childLines := r.Lines
-		if _, ok := ch.(MouseEnabled); ok {
-			childLines = markLines(ch, childLines)
-		}
-		lines = append(lines, childLines...)
+		lines = append(lines, r.Lines...)
 	}
 	return RenderResult{
 		Lines:  lines,
@@ -730,39 +665,25 @@ func (c *Container) Render(ctx RenderContext) RenderResult {
 // Slot is a component that delegates to a single replaceable child.
 // Use it to swap between components (e.g. text input vs spinner)
 // without modifying the parent container's child list.
+//
+// The child is mounted lazily via [RenderChild] on the first render
+// after being set. The previous child is dismounted when the Slot
+// re-renders and it is no longer the current child (orphan cleanup).
 type Slot struct {
 	Compo
 	child Component
 }
 
-func (s *Slot) componentChildren() []Component {
-	if s.child != nil {
-		return []Component{s.child}
-	}
-	return nil
-}
-
 // NewSlot creates a Slot with the given initial child.
 func NewSlot(child Component) *Slot {
-	s := &Slot{}
-	s.setChild(child)
-	return s
+	return &Slot{child: child}
 }
 
-// Set replaces the current child.
+// Set replaces the current child. The old child will be dismounted
+// and the new child mounted on the next render.
 func (s *Slot) Set(c Component) {
-	s.setChild(c)
-	s.Update()
-}
-
-func (s *Slot) setChild(c Component) {
-	if s.child != nil {
-		setComponentParent(s.child, nil)
-	}
 	s.child = c
-	if c != nil {
-		setComponentParent(c, &s.Compo)
-	}
+	s.Update()
 }
 
 // Get returns the current child.
@@ -774,9 +695,5 @@ func (s *Slot) Render(ctx RenderContext) RenderResult {
 	if s.child == nil {
 		return RenderResult{}
 	}
-	r := renderComponent(s.child, ctx)
-	if _, ok := s.child.(MouseEnabled); ok {
-		r.Lines = markLines(s.child, r.Lines)
-	}
-	return r
+	return s.RenderChild(s.child, ctx)
 }

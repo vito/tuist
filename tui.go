@@ -863,12 +863,6 @@ func (t *TUI) collectMarkers(comp Component, m map[int64]Component) {
 	if id := cp.markerID.Load(); id != 0 {
 		m[id] = comp
 	}
-	if p, ok := comp.(componentParent); ok {
-		for _, child := range p.componentChildren() {
-			t.collectMarkers(child, m)
-		}
-	}
-	// Walk inline children rendered via RenderChild.
 	for _, child := range cp.renderChildren {
 		t.collectMarkers(child, m)
 	}
