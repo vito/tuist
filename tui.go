@@ -206,13 +206,14 @@ type TUI struct {
 
 	// Positional mouse dispatch: zones rebuilt after each render by scanning markers.
 	mouseZones      []mouseZone
-	markerIDs       map[int64]Component    // reused marker ID → component lookup
-	trackedZones    map[int64]*mouseZone   // reused open-marker tracker
-	ansiParser      *ansi.Parser           // reused ANSI parser for zone scanning
-	lastMouseTarget Component              // for hover enter/leave tracking
+	markerIDs       map[int64]Component  // reused marker ID → component lookup
+	trackedZones    map[int64]*mouseZone // reused open-marker tracker
+	ansiParser      *ansi.Parser         // reused ANSI parser for zone scanning
+	lastMouseTarget Component            // for hover enter/leave tracking
 
-	debugWriter io.Writer    // if non-nil, render stats are logged here
-	writeBuf    bytes.Buffer // reused across frames for terminal output
+	debugWriter  io.Writer    // if non-nil, render stats are logged here
+	envDebugFile *os.File     // opened by Start from TUIST_LOG; closed by Stop
+	writeBuf     bytes.Buffer // reused across frames for terminal output
 
 	// ── Event loop channels ──
 
@@ -490,6 +491,11 @@ func (t *TUI) Dispatch(fn func()) {
 //
 // For synchronous/headless rendering without an event loop, use
 // [TUI.RenderOnce] instead.
+//
+// If the TUIST_LOG environment variable is set, Start automatically opens
+// the specified file path for render debug logging (JSONL format). This
+// is equivalent to calling SetDebugWriter with the opened file. The file
+// is created/truncated on each Start call and closed on Stop.
 func (t *TUI) Start() error {
 	// If a previous loop is still running, stop it first.
 	if t.loopDone != nil {
@@ -505,6 +511,16 @@ func (t *TUI) Start() error {
 	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
 	t.loopDone = make(chan struct{})
 	go t.runLoop()
+
+	// Auto-configure debug logging from environment.
+	if logPath := os.Getenv("TUIST_LOG"); logPath != "" && t.debugWriter == nil {
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return fmt.Errorf("open TUIST_LOG %q: %w", logPath, err)
+		}
+		t.debugWriter = f
+		t.envDebugFile = f
+	}
 
 	err := t.terminal.Start(
 		func(data []byte) { t.handleInput(data) },
@@ -561,6 +577,13 @@ func (t *TUI) stop(clear bool) {
 	t.terminal.WriteString("\r")
 	t.terminal.ShowCursor()
 	t.terminal.Stop()
+
+	// Close environment-opened debug log file.
+	if t.envDebugFile != nil {
+		t.envDebugFile.Close()
+		t.envDebugFile = nil
+		t.debugWriter = nil
+	}
 }
 
 // Exec suspends the TUI and runs fn with exclusive access to the

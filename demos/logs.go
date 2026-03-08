@@ -38,7 +38,7 @@ func runLogs(initialLines int) error {
 	tui := tuist.New(sharedTerm)
 
 	// Auto-enable render debug.
-	logPath := "/tmp/dang_render_debug.log"
+	logPath := "/tmp/tuist.log"
 	debugFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("open debug log: %w", err)

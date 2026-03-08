@@ -4,12 +4,12 @@
 //
 // Usage:
 //
-//	# Terminal 1: start the REPL with render debug
-//	DANG_DEBUG_RENDER=1 dang
+//	# Terminal 1: start your app with render debug logging
+//	TUIST_LOG=/tmp/tuist.log myapp
 //
 //	# Terminal 2: launch the dashboard
-//	go run ./cmd/render-debug
-//	go run ./cmd/render-debug -file /path/to/custom.log
+//	go run ./internal/debugui
+//	go run ./internal/debugui -file /path/to/custom.log
 package main
 
 import (
@@ -33,7 +33,7 @@ var dashboardFS embed.FS
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:0", "address to listen on (port 0 = auto)")
-	logFile := flag.String("file", "/tmp/dang_render_debug.log", "path to JSONL render debug log")
+	logFile := flag.String("file", "/tmp/tuist.log", "path to JSONL render debug log")
 	noBrowser := flag.Bool("no-open", false, "don't open browser automatically")
 	flag.Parse()
 

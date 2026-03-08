@@ -54,7 +54,7 @@ func runKeygen(duration time.Duration, cpuProfile, heapProfile string, bench boo
 	}
 	tui := tuist.New(sharedTerm)
 
-	logPath := "/tmp/tuist-keygen-debug.log"
+	logPath := "/tmp/tuist.log"
 	debugFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("open debug log: %w", err)
