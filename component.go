@@ -16,9 +16,7 @@ import (
 // ── EventContext ───────────────────────────────────────────────────────────
 
 // EventContext provides access to framework operations. It is passed
-// to event handlers, lifecycle hooks, and dispatch callbacks — the places
-// where components perform side effects. It is NOT available during Render,
-// which should be a pure function of component state.
+// to event handlers, lifecycle hooks, and dispatch callbacks.
 //
 // EventContext embeds [context.Context]. The Done() channel is closed when
 // the source component is dismounted, so background goroutines spawned from
@@ -229,13 +227,12 @@ type Compo struct {
 	lineBufs [2][]string
 	bufIdx   int
 
-	// Inline children rendered via RenderChild. Populated during Render,
+	// Children rendered via RenderChild. Populated during Render,
 	// cleared at the start of each cache-miss re-render. Used by
 	// collectMarkers to discover zone markers for positional mouse
-	// dispatch, and by dismountTree for lifecycle cleanup.
-	//
-	// MouseEnabled inline children are auto-mounted on first encounter
-	// so they participate in mouse tracking and zone dispatch.
+	// dispatch, and by dismountTree for lifecycle cleanup. Children
+	// are auto-mounted on first encounter and dismounted when they
+	// no longer appear after a re-render (orphan cleanup).
 	renderChildren []Component
 
 	// componentStats is propagated from parent to child during rendering
@@ -280,21 +277,18 @@ func (c *Compo) Update() {
 func (c *Compo) compo() *Compo { return c }
 
 // RenderChild renders a child component through this Compo, using the
-// framework's render cache. It also wires the child's parent pointer so
-// that Update() on the child propagates upward through this component.
+// framework's render cache. It is the single mechanism for child
+// lifecycle management — [Container] and [Slot] use it internally.
 //
-// Children are automatically mounted into the TUI when the parent is
-// mounted. This fires [Mounter.OnMount] lifecycle hooks and wires the
-// component into the tree so [Compo.Update] propagation reaches
-// [TUI.RequestRender]. When the parent is re-rendered without calling
-// RenderChild for a previously rendered child, that child is
-// dismounted automatically.
-//
-// MouseEnabled children additionally have their output wrapped with
+// RenderChild wires the child's parent pointer so that [Compo.Update]
+// propagates upward. Children are automatically mounted (firing
+// [Mounter.OnMount]) on their first render and dismounted when the
+// parent re-renders without calling RenderChild for them (orphan
+// cleanup). [MouseEnabled] children have their output wrapped with
 // zone markers for positional mouse dispatch.
 //
-// Use this instead of calling child.Render(ctx) directly when your
-// component wraps another component without using Container or Slot:
+// Always use RenderChild (not child.Render directly) when composing
+// child components:
 //
 //	func (w *MyWrapper) Render(ctx tuist.RenderContext) tuist.RenderResult {
 //	    return w.RenderChild(w.inner, ctx)
@@ -304,7 +298,7 @@ func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 	child.compo().componentStats = c.componentStats
 	c.renderChildren = append(c.renderChildren, child)
 
-	// Auto-mount inline children so they get lifecycle hooks and
+	// Auto-mount children so they get lifecycle hooks and
 	// proper Update() propagation through the TUI.
 	if c.tui != nil {
 		cp := child.compo()
@@ -557,7 +551,10 @@ type Mounter interface {
 // cleanup when they leave a TUI-rooted tree. The mount context's Done()
 // channel is already closed when OnDismount is called.
 //
-// Dismount fires children-first (leaves before parents).
+// OnDismount is called lazily during the render pass when a parent
+// re-renders without calling [RenderChild] for a previously rendered
+// child (orphan cleanup). Dismount fires children-first (leaves before
+// parents).
 type Dismounter interface {
 	OnDismount()
 }
@@ -576,7 +573,7 @@ type Dismounter interface {
 func dismountTree(comp Component) {
 	cp := comp.compo()
 
-	// Dismount children rendered via RenderChild.
+	// Dismount children (populated by RenderChild during rendering).
 	for _, child := range cp.renderChildren {
 		if child.compo().tui != nil {
 			dismountTree(child)
