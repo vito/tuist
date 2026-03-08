@@ -1364,17 +1364,30 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 		buf.WriteString(escSyncBegin)
 		buf.WriteString(cursorVertical(delta))
 		buf.WriteString("\r")
-		if extra > 0 {
-			buf.WriteString(cursorDown(1))
-		}
-		for i := range extra {
-			buf.WriteString("\r")
-			buf.WriteString(escClearLine)
-			if i < extra-1 {
-				buf.WriteString(cursorDown(1))
+		if len(newLines) == 0 {
+			// Shrinking to nothing: clear all lines starting from
+			// the current position (targetRow = 0).
+			for i := range extra {
+				buf.WriteString(escClearLine)
+				if i < extra-1 {
+					buf.WriteString(cursorDown(1))
+					buf.WriteString("\r")
+				}
 			}
-		}
-		if extra > 0 {
+			if extra > 1 {
+				buf.WriteString(cursorUp(extra - 1))
+			}
+		} else {
+			// Shrinking but keeping some lines: skip past the last
+			// remaining line, then clear the extras below.
+			buf.WriteString(cursorDown(1))
+			for i := range extra {
+				buf.WriteString("\r")
+				buf.WriteString(escClearLine)
+				if i < extra-1 {
+					buf.WriteString(cursorDown(1))
+				}
+			}
 			buf.WriteString(cursorUp(extra))
 		}
 		buf.WriteString(escSyncEnd)

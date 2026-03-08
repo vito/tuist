@@ -259,6 +259,24 @@ func TestGolden_FirstRenderClearsExistingContent(t *testing.T) {
 	golden.Assert(t, term.Render(), "golden/first_render_clears.golden")
 }
 
+func TestGolden_ShrinkToZeroLines(t *testing.T) {
+	// Regression: when a component goes from N lines to 0, every
+	// previous line must be cleared — including line 0.
+	term := vt.New(40, 8)
+	tui := tuist.New(term)
+
+	comp := &text{Lines: []string{"line A", "line B", "line C", "line D"}}
+	tui.AddChild(comp)
+	tui.RenderOnce()
+
+	// Shrink to zero.
+	comp.Lines = nil
+	comp.Update()
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/shrink_to_zero.golden")
+}
+
 // ── cursor positioning ─────────────────────────────────────────────────────
 
 func TestGolden_CursorPosition(t *testing.T) {
