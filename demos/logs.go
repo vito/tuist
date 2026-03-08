@@ -336,17 +336,11 @@ func (s *stressLog) Render(ctx tuist.RenderContext) tuist.RenderResult {
 			levelStyled = e.level
 		}
 		line := fmt.Sprintf("%s %-5s %s", ts, levelStyled, e.message)
-		if tuist.VisibleWidth(line) > ctx.Width {
-			line = tuist.Truncate(line, ctx.Width, "")
-		}
 		lines = append(lines, line)
 
 		if s.verbose {
 			detail := fmt.Sprintf("         → stack: %s | goroutine: %d | alloc: %dKB",
 				randomStack(), rand.Intn(500), rand.Intn(8192))
-			if tuist.VisibleWidth(detail) > ctx.Width {
-				detail = tuist.Truncate(detail, ctx.Width, "")
-			}
 			if s.colorize {
 				detail = "\x1b[90m" + detail + "\x1b[0m"
 			}
@@ -403,9 +397,6 @@ func (s *statusBarComponent) Render(ctx tuist.RenderContext) tuist.RenderResult 
 	s.mu.Lock()
 	line := s.line
 	s.mu.Unlock()
-	if tuist.VisibleWidth(line) > ctx.Width {
-		line = tuist.Truncate(line, ctx.Width, "")
-	}
 	return tuist.RenderResult{Lines: []string{line}}
 }
 

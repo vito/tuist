@@ -23,11 +23,7 @@ type Label struct {
 }
 
 func (l *Label) Render(ctx tuist.RenderContext) tuist.RenderResult {
-	line := l.Text
-	if tuist.VisibleWidth(line) > ctx.Width {
-		line = tuist.Truncate(line, ctx.Width, "…")
-	}
-	return tuist.RenderResult{Lines: []string{line}}
+	return tuist.RenderResult{Lines: []string{l.Text}}
 }
 
 // Counter increments on each key press, and 'q' quits.
@@ -39,11 +35,7 @@ type Counter struct {
 }
 
 func (c *Counter) Render(ctx tuist.RenderContext) tuist.RenderResult {
-	line := countStyle.Render(fmt.Sprintf("%d", c.Count))
-	if tuist.VisibleWidth(line) > ctx.Width {
-		line = tuist.Truncate(line, ctx.Width, "…")
-	}
-	return tuist.RenderResult{Lines: []string{line}}
+	return tuist.RenderResult{Lines: []string{countStyle.Render(fmt.Sprintf("%d", c.Count))}}
 }
 
 var _ tuist.Interactive = (*Counter)(nil)

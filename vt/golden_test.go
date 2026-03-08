@@ -21,15 +21,7 @@ type text struct {
 }
 
 func (s *text) Render(ctx tuist.RenderContext) tuist.RenderResult {
-	out := make([]string, len(s.Lines))
-	for i, l := range s.Lines {
-		if tuist.VisibleWidth(l) > ctx.Width {
-			out[i] = tuist.Truncate(l, ctx.Width, "")
-		} else {
-			out[i] = l
-		}
-	}
-	return tuist.RenderResult{Lines: out, Cursor: s.Cursor}
+	return tuist.RenderResult{Lines: s.Lines, Cursor: s.Cursor}
 }
 
 // borderedBox renders a lipgloss-bordered box that respects ctx.Height.

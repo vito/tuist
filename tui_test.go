@@ -46,16 +46,8 @@ type staticComponent struct {
 }
 
 func (s *staticComponent) Render(ctx RenderContext) RenderResult {
-	out := make([]string, len(s.lines))
-	for i, l := range s.lines {
-		if VisibleWidth(l) > ctx.Width {
-			out[i] = Truncate(l, ctx.Width, "")
-		} else {
-			out[i] = l
-		}
-	}
 	return RenderResult{
-		Lines:  out,
+		Lines:  s.lines,
 		Cursor: s.cursor,
 	}
 }

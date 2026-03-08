@@ -133,11 +133,7 @@ func (t *TextInput) Render(ctx RenderContext) RenderResult {
 			}
 		}
 
-		line := buf.String()
-		if VisibleWidth(line) > ctx.Width {
-			line = Truncate(line, ctx.Width, "")
-		}
-		lines = append(lines, line)
+		lines = append(lines, buf.String())
 	}
 
 	var cursor *CursorPos

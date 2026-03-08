@@ -56,9 +56,6 @@ func (s *Spinner) Render(ctx RenderContext) RenderResult {
 		frame = s.Style(frame)
 	}
 	line := frame + " " + s.Label
-	if VisibleWidth(line) > ctx.Width {
-		line = Truncate(line, ctx.Width, "")
-	}
 	return RenderResult{
 		Lines: []string{line},
 	}
