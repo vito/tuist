@@ -242,10 +242,9 @@ type Compo struct {
 	// no longer appear after a re-render (orphan cleanup).
 	renderChildren []Component
 
-	// componentStats is propagated from parent to child during rendering
-	// so that stats collection works across package boundaries. Set by
-	// renderComponent before calling Render, inherited by children
-	// via RenderChild.
+	// componentStats collects per-component render metrics when debug
+	// logging is enabled. Set on the root by the TUI before rendering,
+	// then propagated from parent to child via RenderChild.
 	componentStats *[]ComponentStat
 
 	// Lifecycle — managed by the framework during mount/dismount.
@@ -371,11 +370,10 @@ func (c *Compo) RenderChildInline(ctx Context, child Component) string {
 func renderComponent(ch Component, ctx Context) RenderResult {
 	cp := ch.compo()
 
-	// Resolve stats collector from the Compo (propagated from parent
-	// via RenderChild).
+	// Stats collector lives on the Compo. For the root, the TUI sets it
+	// before calling renderComponent. For children, RenderChild propagates
+	// it from parent to child.
 	stats := cp.componentStats
-	// Store it so this component's RenderChild calls can propagate it.
-	cp.componentStats = stats
 
 	gen := cp.generation.Load()
 	if cp.cache != nil && gen == cp.renderedGen && cp.cache.width == ctx.Width {
