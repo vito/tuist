@@ -229,8 +229,7 @@ type Compo struct {
 	// renderComponent alternates between lineBufs[0] and lineBufs[1]
 	// so the previous render's slice (which may be referenced by
 	// TUI.previousLines or a parent's buffer) is never overwritten.
-	// The alternate buffer is offered to Render via the recycle
-	// parameter (internal to renderComponent).
+	// The alternate buffer is exposed to Render via Context.Recycle().
 	lineBufs [2][]string
 	bufIdx   int
 
