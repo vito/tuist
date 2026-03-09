@@ -239,28 +239,6 @@ func (c *Cell) HandleMouse(ctx tuist.Context, ev tuist.MouseEvent) bool {
 Inline children rendered via `RenderChildInline` also get zone
 markers — you can have clickable spans within a single line.
 
-## vs Bubbletea {#vs-bubbletea}
-
-\table{
-  \table-row{}{tuist}{Bubbletea}
-}{
-  \table-row{Model}{Component tree}{Elm (Model-Update-View)}
-}{
-  \table-row{Render caching}{\y{per-component, generation-based}}{\n{full view each frame}}
-}{
-  \table-row{Terminal output}{\y{line-level diff}}{\n{full repaint}}
-}{
-  \table-row{Event bubbling}{\y{automatic (parent chain)}}{\n{manual}}
-}{
-  \table-row{Mouse dispatch}{\y{positional (zone markers)}}{BubbleZone (external)}
-}{
-  \table-row{Overlays}{\y{built-in, cursor-relative}}{\n{manual}}
-}{
-  \table-row{Lifecycle}{\y{OnMount/OnDismount + context}}{Init only}
-}{
-  \table-row{Child cleanup}{\y{automatic orphan dismount}}{\n{manual}}
-}
-
 ## Demos
 
 ```bash

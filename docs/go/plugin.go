@@ -73,18 +73,4 @@ func (p Plugin) HeaderLinks(links ...booklit.Content) booklit.Content {
 	}
 }
 
-// Y marks content as a positive feature in comparison tables (green text).
-func (p Plugin) Y(content booklit.Content) booklit.Content {
-	return booklit.Styled{
-		Style:   "feature-y",
-		Content: content,
-	}
-}
 
-// N marks content as a neutral/missing feature in comparison tables (gray text).
-func (p Plugin) N(content booklit.Content) booklit.Content {
-	return booklit.Styled{
-		Style:   "feature-n",
-		Content: content,
-	}
-}
