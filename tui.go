@@ -274,23 +274,26 @@ func (t *TUI) runLoop() {
 			// fall through to drain + render
 		}
 
-		// Drain all pending events and dispatches before rendering.
-		// This coalesces rapid input and multiple dispatches into one frame.
-	drain:
-		for {
-			select {
-			case <-t.stopCtx.Done():
-				return
-			case ev := <-t.eventCh:
-				t.dispatchEvent(ev)
-			case <-t.dispatchCh:
-				t.drainDispatchQ()
-			default:
-				break drain
-			}
-		}
-
+		t.drainAll()
 		t.doRender()
+	}
+}
+
+// drainAll drains all pending events and dispatches before rendering.
+// This coalesces rapid input and multiple dispatches into one frame.
+// Called only on the UI goroutine.
+func (t *TUI) drainAll() {
+	for {
+		select {
+		case <-t.stopCtx.Done():
+			return
+		case ev := <-t.eventCh:
+			t.dispatchEvent(ev)
+		case <-t.dispatchCh:
+			t.drainDispatchQ()
+		default:
+			return
+		}
 	}
 }
 
