@@ -29,7 +29,8 @@ import (
 type Context struct {
 	context.Context
 
-	// Width is the available width in terminal columns.
+	// Width is the available width in terminal columns. During Render
+	// this carries the layout constraint; outside Render it is zero.
 	Width int
 	// Height is the allocated height in lines. 0 means unconstrained
 	// (the component may return as many lines as it wants).
