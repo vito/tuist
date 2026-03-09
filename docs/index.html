@@ -111,7 +111,7 @@ tui.<span class="fn">Dispatch</span>(<span class="kw">func</span>() {
 <!-- ─────────────────────────────────────────── -->
 <h2>How it works</h2>
 
-<p>Components form a tree. Each embeds <code>Compo</code> which tracks a generation counter. <code>Update()</code> bumps the counter and propagates upward. On each frame, <code>renderComponent</code> skips any subtree whose generation hasn't changed — cached result returned in O(1).</p>
+<p>Components form a tree. Each embeds <code>Compo</code> which tracks a generation counter. <code>Update()</code> bumps the counter and propagates upward. On each frame, the framework skips any subtree whose generation hasn't changed — cached result returned in O(1).</p>
 
 <p>The rendered output (a <code>[]string</code>, one per line) is diffed against the previous frame. Only changed lines are written to the terminal, wrapped in synchronized output (DEC 2026) to avoid flicker.</p>
 
