@@ -30,7 +30,7 @@ func NewSpinner() *Spinner {
 
 // OnMount starts the spinner animation. The goroutine is bounded by
 // ctx.Done(), which fires when the component is dismounted.
-func (s *Spinner) OnMount(ctx EventContext) {
+func (s *Spinner) OnMount(ctx Context) {
 	s.start = time.Now()
 	ticker := time.NewTicker(s.interval)
 	go func() {
@@ -48,7 +48,7 @@ func (s *Spinner) OnMount(ctx EventContext) {
 	}()
 }
 
-func (s *Spinner) Render(ctx RenderContext) RenderResult {
+func (s *Spinner) Render(ctx Context) RenderResult {
 	elapsed := time.Since(s.start)
 	idx := int(elapsed/s.interval) % len(s.frames)
 	frame := s.frames[idx]

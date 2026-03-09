@@ -22,7 +22,7 @@ type Label struct {
 	Text string
 }
 
-func (l *Label) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (l *Label) Render(ctx tuist.Context) tuist.RenderResult {
 	return tuist.RenderResult{Lines: []string{l.Text}}
 }
 
@@ -34,13 +34,13 @@ type Counter struct {
 	focused bool
 }
 
-func (c *Counter) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (c *Counter) Render(ctx tuist.Context) tuist.RenderResult {
 	return tuist.RenderResult{Lines: []string{countStyle.Render(fmt.Sprintf("%d", c.Count))}}
 }
 
 var _ tuist.Interactive = (*Counter)(nil)
 
-func (c *Counter) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool {
+func (c *Counter) HandleKeyPress(_ tuist.Context, ev uv.KeyPressEvent) bool {
 	if ev.Text == "q" {
 		c.quit()
 		return true
@@ -52,7 +52,7 @@ func (c *Counter) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool
 
 var _ tuist.Focusable = (*Counter)(nil)
 
-func (c *Counter) SetFocused(_ tuist.EventContext, focused bool) { c.focused = focused }
+func (c *Counter) SetFocused(_ tuist.Context, focused bool) { c.focused = focused }
 
 func Example() {
 	term := tuist.NewProcessTerminal()

@@ -111,7 +111,7 @@ type selectorView struct {
 	done   chan struct{}
 }
 
-func (s *selectorView) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool {
+func (s *selectorView) HandleKeyPress(_ tuist.Context, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	switch {
 	case key.Text == "q" || (key.Code == 'c' && key.Mod == uv.ModCtrl):
@@ -146,7 +146,7 @@ var (
 	selHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 )
 
-func (s *selectorView) Render(_ tuist.RenderContext) tuist.RenderResult {
+func (s *selectorView) Render(_ tuist.Context) tuist.RenderResult {
 	var lines []string
 	lines = append(lines, "")
 	lines = append(lines, selTitleStyle.Render("  ◆ tuist demos"))

@@ -160,7 +160,7 @@ func NewCompletionMenu(input *TextInput, provider CompletionProvider) *Completio
 
 	// Wire into the TextInput's OnChange.
 	prevOnChange := input.OnChange
-	input.OnChange = func(ctx EventContext) {
+	input.OnChange = func(ctx Context) {
 		if prevOnChange != nil {
 			prevOnChange(ctx)
 		}
@@ -173,7 +173,7 @@ func NewCompletionMenu(input *TextInput, provider CompletionProvider) *Completio
 // Refresh re-queries the provider and updates the menu. Call this when
 // external state changes (e.g. new bindings become available) but the
 // input text hasn't changed.
-func (m *CompletionMenu) Refresh(ctx EventContext) {
+func (m *CompletionMenu) Refresh(ctx Context) {
 	val := m.input.Value()
 	if val == "" || m.Provider == nil {
 		m.hide()
@@ -250,7 +250,7 @@ func (m *CompletionMenu) hideDetail() {
 // HandleKeyPress intercepts Up/Down/Escape for menu navigation.
 // Returns true if the key was consumed. Call this from a parent
 // component's HandleKeyPress, or embed CompletionMenu as a child.
-func (m *CompletionMenu) HandleKeyPress(ctx EventContext, ev uv.KeyPressEvent) bool {
+func (m *CompletionMenu) HandleKeyPress(ctx Context, ev uv.KeyPressEvent) bool {
 	if !m.visible {
 		return false
 	}
@@ -284,7 +284,7 @@ func (m *CompletionMenu) HandleKeyPress(ctx EventContext, ev uv.KeyPressEvent) b
 	return false
 }
 
-func (m *CompletionMenu) syncSelection(ctx EventContext) {
+func (m *CompletionMenu) syncSelection(ctx Context) {
 	// Update suggestion to selected item.
 	if m.index >= 0 && m.index < len(m.items) {
 		val := m.input.Value()
@@ -336,7 +336,7 @@ func (m *CompletionMenu) tokenLen() int {
 	return len(val) - m.replaceFrom
 }
 
-func (m *CompletionMenu) showMenu(ctx EventContext) {
+func (m *CompletionMenu) showMenu(ctx Context) {
 	opts := &OverlayOptions{
 		Width:          SizeAbs(m.menuBoxWidth()),
 		MaxHeight:      SizeAbs(m.menuBoxHeight()),
@@ -382,7 +382,7 @@ func (m *CompletionMenu) detailOpts() *OverlayOptions {
 	}
 }
 
-func (m *CompletionMenu) showDetailFor(ctx EventContext, c Completion) {
+func (m *CompletionMenu) showDetailFor(ctx Context, c Completion) {
 	lines := m.renderDetail(c, 40) // approximate width; real width comes from Render
 	if len(lines) == 0 {
 		m.hideDetail()
@@ -402,7 +402,7 @@ func (m *CompletionMenu) showDetailFor(ctx EventContext, c Completion) {
 	}
 }
 
-func (m *CompletionMenu) syncDetail(ctx EventContext) {
+func (m *CompletionMenu) syncDetail(ctx Context) {
 	if !m.visible || len(m.items) == 0 {
 		m.hideDetail()
 		return
@@ -469,7 +469,7 @@ type completionMenuOverlay struct {
 	dimStyle      lipgloss.Style
 }
 
-func (c *completionMenuOverlay) Render(ctx RenderContext) RenderResult {
+func (c *completionMenuOverlay) Render(ctx Context) RenderResult {
 	if len(c.items) == 0 {
 		return RenderResult{}
 	}
@@ -528,7 +528,7 @@ type completionDetailOverlay struct {
 	borderStyle lipgloss.Style
 }
 
-func (d *completionDetailOverlay) Render(ctx RenderContext) RenderResult {
+func (d *completionDetailOverlay) Render(ctx Context) RenderResult {
 	if len(d.lines) == 0 {
 		return RenderResult{}
 	}

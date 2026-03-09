@@ -13,86 +13,22 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-// ── EventContext ───────────────────────────────────────────────────────────
+// ── Context ────────────────────────────────────────────────────────────────
 
-// EventContext provides access to framework operations. It is passed
-// to event handlers, lifecycle hooks, and dispatch callbacks.
+// Context is a component's handle to the framework. Every framework
+// callback — Render, OnMount, HandleKeyPress, SetFocused, etc. —
+// receives a Context.
 //
-// EventContext embeds [context.Context]. The Done() channel is closed when
-// the source component is dismounted, so background goroutines spawned from
-// OnMount can use it as a cancellation signal.
-type EventContext struct {
+// Context embeds [context.Context]. The Done() channel is closed when
+// the source component is dismounted, so background goroutines spawned
+// from OnMount can use it as a cancellation signal.
+//
+// During Render, Width, Height, and ScreenHeight carry layout
+// constraints. Outside Render (event handlers, lifecycle hooks) they
+// are zero.
+type Context struct {
 	context.Context
-	tui    *TUI
-	source Component
-}
 
-// SetFocus gives keyboard focus to the given component (or nil to blur).
-func (ctx EventContext) SetFocus(comp Component) {
-	ctx.tui.SetFocus(comp)
-}
-
-// ShowOverlay displays a component as an overlay and returns a handle.
-func (ctx EventContext) ShowOverlay(comp Component, opts *OverlayOptions) *OverlayHandle {
-	return ctx.tui.ShowOverlay(comp, opts)
-}
-
-// AddInputListener registers a listener that intercepts input before it
-// reaches the focused component. Returns a removal function.
-func (ctx EventContext) AddInputListener(l InputListener) func() {
-	return ctx.tui.AddInputListener(l)
-}
-
-// RequestRender schedules a render. If repaint is true, forces full redraw.
-func (ctx EventContext) RequestRender(repaint bool) {
-	ctx.tui.RequestRender(repaint)
-}
-
-// HasKittyKeyboard reports terminal keyboard protocol support.
-func (ctx EventContext) HasKittyKeyboard() bool {
-	return ctx.tui.HasKittyKeyboard()
-}
-
-// HasOverlay reports whether any overlay is currently visible.
-func (ctx EventContext) HasOverlay() bool {
-	return ctx.tui.HasOverlay()
-}
-
-// EnableMouse increments the mouse reference count, enabling terminal mouse
-// reporting if it wasn't already enabled. Call DisableMouse to decrement.
-func (ctx EventContext) EnableMouse() {
-	ctx.tui.EnableMouse()
-}
-
-// DisableMouse decrements the mouse reference count, disabling terminal
-// mouse reporting when no components need it.
-func (ctx EventContext) DisableMouse() {
-	ctx.tui.DisableMouse()
-}
-
-// Dispatch schedules a function to run on the UI goroutine.
-//
-// Safe to call from any goroutine. This is the primary way for
-// background goroutines (spawned from OnMount, commands, etc.) to
-// mutate component state and call [Compo.Update]. The caller already
-// has the EventContext in closure scope, so the callback doesn't
-// receive one.
-func (ctx EventContext) Dispatch(fn func()) {
-	ctx.tui.Dispatch(fn)
-}
-
-// SetDebugWriter enables render performance logging. Must be called on
-// the UI goroutine (from an event handler or Dispatch callback).
-func (ctx EventContext) SetDebugWriter(w io.Writer) {
-	ctx.tui.debugWriter = w
-}
-
-
-
-// ── Render ─────────────────────────────────────────────────────────────────
-
-// RenderContext carries everything a component needs to render.
-type RenderContext struct {
 	// Width is the available width in terminal columns.
 	Width int
 	// Height is the allocated height in lines. 0 means unconstrained
@@ -103,18 +39,87 @@ type RenderContext struct {
 	// that render inline but want to fill the viewport can use this.
 	ScreenHeight int
 
-	// Recycle is a pre-allocated []string from the previous render,
-	// resliced to zero length. Components may append into it to avoid
-	// allocating a new lines slice each frame. It is nil on the first
-	// render. Components that ignore it get no behavior change.
-	//
-	// The slice is safe to reuse because parent containers copy child
-	// lines into their own buffer via append.
-	Recycle []string
+	tui     *TUI
+	source  Component
+	recycle []string
+}
 
-	// componentStats, when non-nil, collects per-component render
-	// metrics. Set by the TUI when debug logging is enabled.
-	componentStats *[]ComponentStat
+// Recycle returns a pre-allocated []string from the previous render,
+// resliced to zero length. Components may append into it to avoid
+// allocating a new lines slice each frame. It is nil on the first
+// render. Components that ignore it get no behavior change.
+//
+// The slice is safe to reuse because parent containers copy child
+// lines into their own buffer via append.
+func (ctx Context) Recycle() []string {
+	return ctx.recycle
+}
+
+// Resize returns a copy of ctx with the given Width and Height.
+// ScreenHeight is preserved.
+func (ctx Context) Resize(w, h int) Context {
+	ctx.Width = w
+	ctx.Height = h
+	return ctx
+}
+
+// SetFocus gives keyboard focus to the given component (or nil to blur).
+func (ctx Context) SetFocus(comp Component) {
+	ctx.tui.SetFocus(comp)
+}
+
+// ShowOverlay displays a component as an overlay and returns a handle.
+func (ctx Context) ShowOverlay(comp Component, opts *OverlayOptions) *OverlayHandle {
+	return ctx.tui.ShowOverlay(comp, opts)
+}
+
+// AddInputListener registers a listener that intercepts input before it
+// reaches the focused component. Returns a removal function.
+func (ctx Context) AddInputListener(l InputListener) func() {
+	return ctx.tui.AddInputListener(l)
+}
+
+// RequestRender schedules a render. If repaint is true, forces full redraw.
+func (ctx Context) RequestRender(repaint bool) {
+	ctx.tui.RequestRender(repaint)
+}
+
+// HasKittyKeyboard reports terminal keyboard protocol support.
+func (ctx Context) HasKittyKeyboard() bool {
+	return ctx.tui.HasKittyKeyboard()
+}
+
+// HasOverlay reports whether any overlay is currently visible.
+func (ctx Context) HasOverlay() bool {
+	return ctx.tui.HasOverlay()
+}
+
+// EnableMouse increments the mouse reference count, enabling terminal mouse
+// reporting if it wasn't already enabled. Call DisableMouse to decrement.
+func (ctx Context) EnableMouse() {
+	ctx.tui.EnableMouse()
+}
+
+// DisableMouse decrements the mouse reference count, disabling terminal
+// mouse reporting when no components need it.
+func (ctx Context) DisableMouse() {
+	ctx.tui.DisableMouse()
+}
+
+// Dispatch schedules a function to run on the UI goroutine.
+//
+// Safe to call from any goroutine. This is the primary way for
+// background goroutines (spawned from OnMount, commands, etc.) to
+// mutate component state and call [Compo.Update]. The caller already
+// has the Context in closure scope, so the callback doesn't receive one.
+func (ctx Context) Dispatch(fn func()) {
+	ctx.tui.Dispatch(fn)
+}
+
+// SetDebugWriter enables render performance logging. Must be called on
+// the UI goroutine (from an event handler or Dispatch callback).
+func (ctx Context) SetDebugWriter(w io.Writer) {
+	ctx.tui.debugWriter = w
 }
 
 // ComponentStat captures render metrics for a single component within
@@ -223,7 +228,8 @@ type Compo struct {
 	// renderComponent alternates between lineBufs[0] and lineBufs[1]
 	// so the previous render's slice (which may be referenced by
 	// TUI.previousLines or a parent's buffer) is never overwritten.
-	// The alternate buffer is offered to Render via ctx.Recycle.
+	// The alternate buffer is offered to Render via the recycle
+	// parameter (internal to renderComponent).
 	lineBufs [2][]string
 	bufIdx   int
 
@@ -236,14 +242,13 @@ type Compo struct {
 	renderChildren []Component
 
 	// componentStats is propagated from parent to child during rendering
-	// so that stats collection works across package boundaries (where
-	// the unexported RenderContext field would be lost). Set by
+	// so that stats collection works across package boundaries. Set by
 	// renderComponent before calling Render, inherited by children
 	// via RenderChild.
 	componentStats *[]ComponentStat
 
 	// Lifecycle — managed by the framework during mount/dismount.
-	// Components never access these directly; they receive EventContext
+	// Components never access these directly; they receive Context
 	// through handlers and lifecycle hooks.
 	tui         *TUI
 	mountCtx    context.Context
@@ -262,7 +267,7 @@ type renderCache struct {
 //
 // Must be called from the UI goroutine (event handlers, lifecycle hooks,
 // or Dispatch callbacks). Background goroutines should use
-// [EventContext.Dispatch] to schedule state changes and Update calls.
+// [Context.Dispatch] to schedule state changes and Update calls.
 func (c *Compo) Update() {
 	c.generation.Add(1)
 	if c.parent != nil {
@@ -287,13 +292,18 @@ func (c *Compo) compo() *Compo { return c }
 // cleanup). [MouseEnabled] children have their output wrapped with
 // zone markers for positional mouse dispatch.
 //
-// Always use RenderChild (not child.Render directly) when composing
-// child components:
+// The ctx argument carries layout constraints (Width, Height,
+// ScreenHeight). Pass-through rendering inherits the parent's
+// constraints; use [Context.Resize] for adjusted dimensions:
 //
-//	func (w *MyWrapper) Render(ctx tuist.RenderContext) tuist.RenderResult {
-//	    return w.RenderChild(w.inner, ctx)
+//	func (w *MyWrapper) Render(ctx tuist.Context) tuist.RenderResult {
+//	    return w.RenderChild(ctx, w.inner)
 //	}
-func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
+//
+//	func (b *Border) Render(ctx tuist.Context) tuist.RenderResult {
+//	    return b.RenderChild(ctx.Resize(w, h), b.child)
+//	}
+func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
 	child.compo().parent = c
 	child.compo().componentStats = c.componentStats
 	c.renderChildren = append(c.renderChildren, child)
@@ -312,12 +322,12 @@ func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 				c.tui.EnableMouse()
 			}
 			if m, ok := child.(Mounter); ok {
-				ectx := EventContext{
+				mctx := Context{
 					Context: cp.mountCtx,
 					tui:     c.tui,
 					source:  child,
 				}
-				m.OnMount(ectx)
+				m.OnMount(mctx)
 			}
 		}
 	}
@@ -338,14 +348,14 @@ func (c *Compo) RenderChild(child Component, ctx RenderContext) RenderResult {
 // produce content meant to be composed horizontally within a parent's
 // rendered line:
 //
-//	func (c *Chrome) Render(ctx tuist.RenderContext) tuist.RenderResult {
-//	    re := c.RenderChildInline(c.reInput, ctx)
-//	    im := c.RenderChildInline(c.imInput, ctx)
+//	func (c *Chrome) Render(ctx tuist.Context) tuist.RenderResult {
+//	    re := c.RenderChildInline(ctx, c.reInput)
+//	    im := c.RenderChildInline(ctx, c.imInput)
 //	    top := title + " re " + re + "  im " + im
 //	    return tuist.RenderResult{Lines: []string{top}}
 //	}
-func (c *Compo) RenderChildInline(child Component, ctx RenderContext) string {
-	r := c.RenderChild(child, ctx)
+func (c *Compo) RenderChildInline(ctx Context, child Component) string {
+	r := c.RenderChild(ctx, child)
 	return strings.Join(r.Lines, "")
 }
 
@@ -357,16 +367,12 @@ func (c *Compo) RenderChildInline(child Component, ctx RenderContext) string {
 // before Render and recorded after. Any concurrent Update() increments
 // the counter past the snapshot, so the next renderComponent call sees
 // a mismatch and re-renders. No boolean store-ordering issues.
-func renderComponent(ch Component, ctx RenderContext) RenderResult {
+func renderComponent(ch Component, ctx Context) RenderResult {
 	cp := ch.compo()
 
-	// Resolve stats collector: prefer ctx (fresh each frame from the TUI),
-	// fall back to the Compo's (propagated from parent via RenderChild,
-	// for cross-package calls where ctx loses the unexported field).
-	stats := ctx.componentStats
-	if stats == nil {
-		stats = cp.componentStats
-	}
+	// Resolve stats collector from the Compo (propagated from parent
+	// via RenderChild).
+	stats := cp.componentStats
 	// Store it so this component's RenderChild calls can propagate it.
 	cp.componentStats = stats
 
@@ -387,13 +393,11 @@ func renderComponent(ch Component, ctx RenderContext) RenderResult {
 	// not the current one, so any Update() during Render() is visible
 	// as a generation mismatch on the next frame.
 	//
-	// Flip to the alternate line buffer and offer it via ctx.Recycle.
-	// The previous render's buffer (lineBufs[bufIdx]) may still be
-	// referenced by TUI.previousLines or a parent container, so we
-	// use the OTHER buffer. Components that append into ctx.Recycle
-	// avoid allocating a fresh slice each frame.
+	// Flip to the alternate line buffer. The previous render's buffer
+	// (lineBufs[bufIdx]) may still be referenced by TUI.previousLines
+	// or a parent container, so we use the OTHER buffer.
 	cp.bufIdx ^= 1
-	ctx.Recycle = cp.lineBufs[cp.bufIdx][:0]
+	ctx.recycle = cp.lineBufs[cp.bufIdx][:0]
 
 	// Save previous render children for orphan cleanup after Render.
 	// Nil out (rather than [:0]) so Render's appends don't alias.
@@ -443,7 +447,7 @@ type Component interface {
 	compo() *Compo
 
 	// Render produces the visual output within the given constraints.
-	Render(ctx RenderContext) RenderResult
+	Render(ctx Context) RenderResult
 }
 
 // Interactive is an optional interface for components that accept keyboard
@@ -461,14 +465,14 @@ type Interactive interface {
 	// HandleKeyPress is called with a decoded key press event.
 	// Return true if the event was consumed; return false to let it
 	// bubble to the parent component.
-	HandleKeyPress(ctx EventContext, ev uv.KeyPressEvent) bool
+	HandleKeyPress(ctx Context, ev uv.KeyPressEvent) bool
 }
 
 // Pasteable is an optional interface for components that accept pasted
 // text (via bracketed paste). Paste events bubble like key events: if
 // HandlePaste returns false, the event propagates to the parent.
 type Pasteable interface {
-	HandlePaste(ctx EventContext, ev uv.PasteEvent) bool
+	HandlePaste(ctx Context, ev uv.PasteEvent) bool
 }
 
 // MouseEvent wraps an ultraviolet mouse event with component-relative
@@ -514,7 +518,7 @@ type MouseEnabled interface {
 	// ev.MouseEvent.(type) to distinguish clicks, motion, and wheel
 	// events. Return true if the event was consumed; return false to
 	// let it bubble to the parent component.
-	HandleMouse(ctx EventContext, ev MouseEvent) bool
+	HandleMouse(ctx Context, ev MouseEvent) bool
 }
 
 // Hoverable is an optional interface for MouseEnabled components that want
@@ -525,17 +529,17 @@ type MouseEnabled interface {
 // region. SetHovered(false) is called when the mouse leaves (moves to a
 // different component or to a non-interactive area).
 type Hoverable interface {
-	SetHovered(ctx EventContext, hovered bool)
+	SetHovered(ctx Context, hovered bool)
 }
 
 // Focusable is an optional interface for components that want to know when
 // they gain or lose focus (e.g. to show/hide a cursor).
 type Focusable interface {
-	SetFocused(ctx EventContext, focused bool)
+	SetFocused(ctx Context, focused bool)
 }
 
 // Mounter is an optional interface for components that need to perform
-// setup when they enter a TUI-rooted tree. The EventContext embeds
+// setup when they enter a TUI-rooted tree. The Context embeds
 // context.Context whose Done() channel is closed when the component is
 // dismounted — use it to bound background goroutine lifetimes.
 //
@@ -544,7 +548,7 @@ type Focusable interface {
 // means OnMount fires on the UI goroutine during the render pass, not
 // immediately when AddChild or Set is called.
 type Mounter interface {
-	OnMount(ctx EventContext)
+	OnMount(ctx Context)
 }
 
 // Dismounter is an optional interface for components that need to perform
@@ -638,11 +642,11 @@ func (c *Container) Clear() {
 	c.Update()
 }
 
-func (c *Container) Render(ctx RenderContext) RenderResult {
-	lines := ctx.Recycle
+func (c *Container) Render(ctx Context) RenderResult {
+	var lines []string
 	var cursor *CursorPos
 	for _, ch := range c.Children {
-		r := c.RenderChild(ch, ctx)
+		r := c.RenderChild(ctx, ch)
 		if r.Cursor != nil {
 			cursor = &CursorPos{
 				Row: len(lines) + r.Cursor.Row,
@@ -688,9 +692,9 @@ func (s *Slot) Get() Component {
 	return s.child
 }
 
-func (s *Slot) Render(ctx RenderContext) RenderResult {
+func (s *Slot) Render(ctx Context) RenderResult {
 	if s.child == nil {
 		return RenderResult{}
 	}
-	return s.RenderChild(s.child, ctx)
+	return s.RenderChild(ctx, s.child)
 }

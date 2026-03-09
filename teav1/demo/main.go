@@ -123,7 +123,7 @@ func run() error {
 	}
 
 	// Also intercept Ctrl+C at the tuist level.
-	tui.AddInputListener(func(_ tuist.EventContext, ev uv.Event) bool {
+	tui.AddInputListener(func(_ tuist.Context, ev uv.Event) bool {
 		kp, ok := ev.(uv.KeyPressEvent)
 		if !ok {
 			return false
@@ -167,6 +167,6 @@ type staticText struct {
 	line string
 }
 
-func (s *staticText) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (s *staticText) Render(ctx tuist.Context) tuist.RenderResult {
 	return tuist.RenderResult{Lines: []string{s.line}}
 }

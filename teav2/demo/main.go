@@ -147,7 +147,7 @@ func run() error {
 		}
 	}
 
-	tui.AddInputListener(func(_ tuist.EventContext, ev uv.Event) bool {
+	tui.AddInputListener(func(_ tuist.Context, ev uv.Event) bool {
 		kp, ok := ev.(uv.KeyPressEvent)
 		if !ok {
 			return false
@@ -235,18 +235,14 @@ func (b *borderBox) style() lipgloss.Style {
 		Padding(0, 1)
 }
 
-func (b *borderBox) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (b *borderBox) Render(ctx tuist.Context) tuist.RenderResult {
 	s := b.style()
 	innerWidth := ctx.Width - s.GetHorizontalFrameSize()
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
 
-	childCtx := tuist.RenderContext{
-		Width:  innerWidth,
-		Height: b.height,
-	}
-	childResult := b.RenderChild(b.child, childCtx)
+	childResult := b.RenderChild(ctx.Resize(innerWidth, b.height), b.child)
 
 	// Join child lines and render inside the styled border.
 	content := lipgloss.JoinVertical(lipgloss.Left, childResult.Lines...)
@@ -258,7 +254,7 @@ func (b *borderBox) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	return tuist.RenderResult{Lines: strings.Split(rendered, "\n")}
 }
 
-func (b *borderBox) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
+func (b *borderBox) HandleKeyPress(ctx tuist.Context, ev uv.KeyPressEvent) bool {
 	if ic, ok := b.child.(tuist.Interactive); ok {
 		return ic.HandleKeyPress(ctx, ev)
 	}

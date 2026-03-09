@@ -98,7 +98,7 @@ func newGrid() *grid {
 
 // HandleKeyPress handles global keys and arrow navigation. Cell key
 // events bubble here because cells are rendered via RenderChild.
-func (g *grid) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
+func (g *grid) HandleKeyPress(ctx tuist.Context, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	switch {
 	case key.Text == "q" || (key.Code == 'c' && key.Mod == uv.ModCtrl):
@@ -129,7 +129,7 @@ func (g *grid) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool 
 	return false
 }
 
-func (g *grid) navigate(ctx tuist.EventContext, code rune) bool {
+func (g *grid) navigate(ctx tuist.Context, code rune) bool {
 	if g.cols == 0 || g.rows == 0 {
 		return false
 	}
@@ -170,7 +170,7 @@ func (g *grid) navigate(ctx tuist.EventContext, code rune) bool {
 	return true
 }
 
-func (g *grid) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (g *grid) Render(ctx tuist.Context) tuist.RenderResult {
 	w := ctx.Width
 	h := ctx.ScreenHeight - 1 // reserve 1 line for status bar
 
@@ -180,7 +180,7 @@ func (g *grid) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	g.rows = max(h/cellH, 1)
 	total := min(g.cols*g.rows, maxCells)
 
-	cellCtx := tuist.RenderContext{Width: cellW, Height: cellH, ScreenHeight: ctx.ScreenHeight}
+	cellCtx := ctx.Resize(cellW, cellH)
 	var allLines []string
 	for r := range g.rows {
 		var rowCells []string
@@ -189,7 +189,7 @@ func (g *grid) Render(ctx tuist.RenderContext) tuist.RenderResult {
 			if idx >= total {
 				break
 			}
-			result := g.RenderChild(g.cells[idx], cellCtx)
+			result := g.RenderChild(cellCtx, g.cells[idx])
 			rowCells = append(rowCells, strings.Join(result.Lines, "\n"))
 		}
 		if len(rowCells) == 0 {
@@ -260,7 +260,7 @@ var curStyle = lipgloss.NewStyle().Background(lipgloss.Color("255")).Foreground(
 
 // Render produces the colored rectangle for this cell, including a
 // cursor highlight when the mouse hovers over it.
-func (c *cell) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (c *cell) Render(ctx tuist.Context) tuist.RenderResult {
 	row := c.index / c.grid.cols
 	col := c.index % c.grid.cols
 	w, h := ctx.Width, ctx.Height
@@ -304,7 +304,7 @@ func (c *cell) colors(row, col int) (color.Color, color.Color) {
 }
 
 // HandleMouse implements tuist.MouseEnabled — click to focus, motion to track cursor.
-func (c *cell) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) bool {
+func (c *cell) HandleMouse(ctx tuist.Context, ev tuist.MouseEvent) bool {
 	switch ev.MouseEvent.(type) {
 	case uv.MouseClickEvent:
 		if ev.Mouse().Button == uv.MouseLeft {
@@ -325,7 +325,7 @@ func (c *cell) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) bool {
 }
 
 // SetHovered implements tuist.Hoverable.
-func (c *cell) SetHovered(_ tuist.EventContext, hovered bool) {
+func (c *cell) SetHovered(_ tuist.Context, hovered bool) {
 	if hovered != c.hovered {
 		c.hovered = hovered
 		if !hovered {
@@ -337,7 +337,7 @@ func (c *cell) SetHovered(_ tuist.EventContext, hovered bool) {
 }
 
 // SetFocused implements tuist.Focusable.
-func (c *cell) SetFocused(_ tuist.EventContext, focused bool) {
+func (c *cell) SetFocused(_ tuist.Context, focused bool) {
 	if focused != c.focused {
 		c.focused = focused
 		c.Update() // propagates to grid
@@ -345,6 +345,6 @@ func (c *cell) SetFocused(_ tuist.EventContext, focused bool) {
 }
 
 // HandleKeyPress — cells don't consume keys; they bubble to the grid.
-func (c *cell) HandleKeyPress(_ tuist.EventContext, _ uv.KeyPressEvent) bool {
+func (c *cell) HandleKeyPress(_ tuist.Context, _ uv.KeyPressEvent) bool {
 	return false
 }

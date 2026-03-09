@@ -18,7 +18,7 @@ import (
 
 // InputListener is called with each decoded event before it reaches the
 // focused component. Return true to consume the event and stop propagation.
-type InputListener func(ctx EventContext, ev uv.Event) bool
+type InputListener func(ctx Context, ev uv.Event) bool
 
 type inputListenerEntry struct {
 	fn  InputListener
@@ -395,17 +395,17 @@ func (t *TUI) Focused() Component {
 // Must be called on the UI goroutine (from an event handler or Dispatch).
 func (t *TUI) SetFocus(comp Component) {
 	if f, ok := t.focusedComponent.(Focusable); ok {
-		f.SetFocused(t.eventContextFor(t.focusedComponent), false)
+		f.SetFocused(t.contextFor(t.focusedComponent), false)
 	}
 	t.focusedComponent = comp
 	if f, ok := comp.(Focusable); ok {
-		f.SetFocused(t.eventContextFor(comp), true)
+		f.SetFocused(t.contextFor(comp), true)
 	}
 }
 
-// eventContextFor constructs an EventContext for the given component,
-// using its mount context if available.
-func (t *TUI) eventContextFor(comp Component) EventContext {
+// contextFor constructs a Context for the given component, using its
+// mount context if available.
+func (t *TUI) contextFor(comp Component) Context {
 	ctx := context.Background()
 	if comp != nil {
 		cp := comp.compo()
@@ -413,7 +413,7 @@ func (t *TUI) eventContextFor(comp Component) EventContext {
 			ctx = cp.mountCtx
 		}
 	}
-	return EventContext{
+	return Context{
 		Context: ctx,
 		tui:     t,
 		source:  comp,
@@ -656,9 +656,9 @@ func (t *TUI) handleInput(data []byte) {
 }
 
 func (t *TUI) dispatchEvent(ev uv.Event) {
-	// Construct EventContext for the focused component.
+	// Construct Context for the focused component.
 	comp := t.focusedComponent
-	ctx := t.eventContextFor(comp)
+	ctx := t.contextFor(comp)
 
 	for _, entry := range t.inputListeners {
 		if entry.fn(ctx, ev) {
@@ -696,7 +696,7 @@ func (t *TUI) dispatchEvent(ev uv.Event) {
 // bubbleKeyPress delivers a key event to the focused component and, if
 // not consumed, walks up the parent chain giving each Interactive
 // ancestor a chance to handle it.
-func (t *TUI) bubbleKeyPress(comp Component, ctx EventContext, ev uv.KeyPressEvent) {
+func (t *TUI) bubbleKeyPress(comp Component, ctx Context, ev uv.KeyPressEvent) {
 	if comp == nil {
 		return
 	}
@@ -726,7 +726,7 @@ func (t *TUI) bubbleKeyPress(comp Component, ctx EventContext, ev uv.KeyPressEve
 // not consumed, walks up the parent chain giving each MouseEnabled
 // ancestor a chance to handle it. Used as the fallback when
 // MouseEnabled overlays are active.
-func (t *TUI) bubbleMouse(comp Component, ctx EventContext, ev MouseEvent) {
+func (t *TUI) bubbleMouse(comp Component, ctx Context, ev MouseEvent) {
 	if comp == nil {
 		return
 	}
@@ -754,7 +754,7 @@ func (t *TUI) bubbleMouse(comp Component, ctx EventContext, ev MouseEvent) {
 
 // bubblePaste delivers a paste event with the same bubbling logic as
 // key presses.
-func (t *TUI) bubblePaste(comp Component, ctx EventContext, ev uv.PasteEvent) {
+func (t *TUI) bubblePaste(comp Component, ctx Context, ev uv.PasteEvent) {
 	if comp == nil {
 		return
 	}
@@ -922,7 +922,7 @@ func (t *TUI) dispatchMousePositional(ev uv.MouseEvent) {
 		comp := t.focusedComponent
 		if comp != nil {
 			me := MouseEvent{MouseEvent: ev, Row: m.Y, Col: m.X}
-			t.bubbleMouse(comp, t.eventContextFor(comp), me)
+			t.bubbleMouse(comp, t.contextFor(comp), me)
 		}
 		return
 	}
@@ -932,7 +932,7 @@ func (t *TUI) dispatchMousePositional(ev uv.MouseEvent) {
 		Row:        contentY - best.startRow,
 		Col:        m.X - best.startCol,
 	}
-	ctx := t.eventContextFor(best.comp)
+	ctx := t.contextFor(best.comp)
 
 	if mc, ok := best.comp.(MouseEnabled); ok {
 		if mc.HandleMouse(ctx, me) {
@@ -953,7 +953,7 @@ func (t *TUI) dispatchMousePositional(ev uv.MouseEvent) {
 				} else {
 					pme = MouseEvent{MouseEvent: ev, Row: contentY, Col: m.X}
 				}
-				if mc.HandleMouse(t.eventContextFor(cp.self), pme) {
+				if mc.HandleMouse(t.contextFor(cp.self), pme) {
 					return
 				}
 			}
@@ -994,13 +994,13 @@ func (t *TUI) updateMouseHover(target Component) {
 	}
 	if t.lastMouseTarget != nil {
 		if h, ok := t.lastMouseTarget.(Hoverable); ok {
-			h.SetHovered(t.eventContextFor(t.lastMouseTarget), false)
+			h.SetHovered(t.contextFor(t.lastMouseTarget), false)
 		}
 	}
 	t.lastMouseTarget = target
 	if target != nil {
 		if h, ok := target.(Hoverable); ok {
-			h.SetHovered(t.eventContextFor(target), true)
+			h.SetHovered(t.contextFor(target), true)
 		}
 	}
 }
@@ -1169,10 +1169,15 @@ func (t *TUI) doRender() {
 // the new set of output lines with reset sequences appended.
 func (t *TUI) renderFrame(width, height int, stats *RenderStats) ([]string, *CursorPos, []ComponentStat) {
 	renderStart := time.Now()
-	ctx := RenderContext{Width: width, ScreenHeight: height}
+	ctx := Context{
+		Context:      context.Background(),
+		tui:          t,
+		Width:        width,
+		ScreenHeight: height,
+	}
 	var compStats []ComponentStat
 	if t.debugWriter != nil {
-		ctx.componentStats = &compStats
+		t.Container.componentStats = &compStats
 	}
 	baseResult := renderComponent(&t.Container, ctx)
 	cursorPos := baseResult.Cursor
@@ -1641,7 +1646,13 @@ func (t *TUI) compositeOverlays(lines []string, baseCursor *CursorPos, overlays 
 		if maxHSet {
 			renderH = maxH
 		}
-		oResult := renderComponent(e.component, RenderContext{Width: w, Height: renderH, ScreenHeight: termH})
+		oResult := renderComponent(e.component, Context{
+			Context:      context.Background(),
+			tui:          t,
+			Width:        w,
+			Height:       renderH,
+			ScreenHeight: termH,
+		})
 		oLines := oResult.Lines
 		if maxHSet && len(oLines) > maxH {
 			oLines = oLines[:maxH]

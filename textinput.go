@@ -29,7 +29,7 @@ type TextInput struct {
 
 	// OnSubmit is called when Enter is pressed. The string is the trimmed
 	// input value. Return true to clear the input after submission.
-	OnSubmit func(ctx EventContext, value string) bool
+	OnSubmit func(ctx Context, value string) bool
 
 	// Suggestion is a ghost completion hint shown after the cursor. It is
 	// cleared on every keystroke and must be re-set by the caller (e.g. in
@@ -42,12 +42,12 @@ type TextInput struct {
 
 	// OnChange is called after the input value has been modified (character
 	// inserted, deleted, etc.). It is NOT called for cursor-only movements.
-	OnChange func(ctx EventContext)
+	OnChange func(ctx Context)
 
 	// KeyInterceptor, if set, is called before TextInput processes a key.
 	// Return true to consume the event (TextInput won't handle it).
 	// Return false to let TextInput handle it normally.
-	KeyInterceptor func(ctx EventContext, ev uv.KeyPressEvent) bool
+	KeyInterceptor func(ctx Context, ev uv.KeyPressEvent) bool
 }
 
 // NewTextInput creates a TextInput with the given prompt.
@@ -55,7 +55,7 @@ func NewTextInput(prompt string) *TextInput {
 	return &TextInput{Prompt: prompt}
 }
 
-func (t *TextInput) SetFocused(_ EventContext, focused bool) { t.focused = focused }
+func (t *TextInput) SetFocused(_ Context, focused bool) { t.focused = focused }
 
 // Value returns the current input string.
 func (t *TextInput) Value() string { return string(t.value) }
@@ -97,7 +97,7 @@ func (t *TextInput) cursorRowCol() (row, col int) {
 }
 
 // Render returns one or more lines: prompt + input, with cursor position.
-func (t *TextInput) Render(ctx RenderContext) RenderResult {
+func (t *TextInput) Render(ctx Context) RenderResult {
 	val := string(t.value)
 	inputLines := strings.Split(val, "\n")
 
@@ -153,7 +153,7 @@ func (t *TextInput) Render(ctx RenderContext) RenderResult {
 }
 
 // HandleKeyPress implements [Interactive].
-func (t *TextInput) HandleKeyPress(ctx EventContext, ev uv.KeyPressEvent) bool {
+func (t *TextInput) HandleKeyPress(ctx Context, ev uv.KeyPressEvent) bool {
 	if t.KeyInterceptor != nil && t.KeyInterceptor(ctx, ev) {
 		return true
 	}
@@ -161,12 +161,12 @@ func (t *TextInput) HandleKeyPress(ctx EventContext, ev uv.KeyPressEvent) bool {
 }
 
 // HandlePaste implements [Pasteable].
-func (t *TextInput) HandlePaste(ctx EventContext, ev uv.PasteEvent) bool {
+func (t *TextInput) HandlePaste(ctx Context, ev uv.PasteEvent) bool {
 	t.handlePaste(ctx, ev.Content)
 	return true
 }
 
-func (t *TextInput) handlePaste(ctx EventContext, content string) {
+func (t *TextInput) handlePaste(ctx Context, content string) {
 	oldValue := string(t.value)
 	runes := []rune(content)
 	newVal := make([]rune, 0, len(t.value)+len(runes))
@@ -181,7 +181,7 @@ func (t *TextInput) handlePaste(ctx EventContext, content string) {
 	}
 }
 
-func (t *TextInput) handleKeyPress(ctx EventContext, e uv.KeyPressEvent) bool {
+func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 	key := uv.Key(e)
 
 	oldValue := string(t.value)

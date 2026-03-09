@@ -45,7 +45,7 @@ type staticComponent struct {
 	cursor *CursorPos
 }
 
-func (s *staticComponent) Render(ctx RenderContext) RenderResult {
+func (s *staticComponent) Render(ctx Context) RenderResult {
 	return RenderResult{
 		Lines:  s.lines,
 		Cursor: s.cursor,
@@ -160,16 +160,16 @@ func TestSlotComponent(t *testing.T) {
 	slot := NewSlot(a)
 
 	// Initial render — child has no cache yet, so it renders.
-	r := renderComponent(slot, RenderContext{Width: 40})
+	r := renderComponent(slot, Context{Width: 40})
 	assert.Equal(t, []string{"child-a"}, r.Lines)
 
 	// Second render — child is clean (nobody called Update), cached.
-	r = renderComponent(slot, RenderContext{Width: 40})
+	r = renderComponent(slot, Context{Width: 40})
 	assert.Equal(t, []string{"child-a"}, r.Lines)
 
 	// Swap child — Slot.Set marks dirty.
 	slot.Set(b)
-	r = renderComponent(slot, RenderContext{Width: 40})
+	r = renderComponent(slot, Context{Width: 40})
 	assert.Equal(t, []string{"child-b-1", "child-b-2"}, r.Lines)
 }
 
@@ -250,7 +250,7 @@ type compoComponent struct {
 	renderCount int
 }
 
-func (c *compoComponent) Render(ctx RenderContext) RenderResult {
+func (c *compoComponent) Render(ctx Context) RenderResult {
 	c.renderCount++
 	return RenderResult{Lines: c.lines}
 }
@@ -294,7 +294,7 @@ func TestContainerDirtyPropagation(t *testing.T) {
 	c.AddChild(c2)
 
 	// First render — children are dirty, both render.
-	ctx := RenderContext{Width: 40}
+	ctx := Context{Width: 40}
 	r := renderComponent(c, ctx)
 	assert.Equal(t, []string{"a", "b"}, r.Lines)
 	assert.Equal(t, 1, c1.renderCount)
@@ -440,7 +440,7 @@ type updateDuringRenderComponent struct {
 	rendered bool
 }
 
-func (u *updateDuringRenderComponent) Render(ctx RenderContext) RenderResult {
+func (u *updateDuringRenderComponent) Render(ctx Context) RenderResult {
 	snapshot := u.value
 	if !u.rendered {
 		u.rendered = true
@@ -551,7 +551,7 @@ type lifecycleComponent struct {
 	lines         []string
 }
 
-func (c *lifecycleComponent) OnMount(ctx EventContext) {
+func (c *lifecycleComponent) OnMount(ctx Context) {
 	c.mounted = true
 	c.mountCount++
 }
@@ -561,7 +561,7 @@ func (c *lifecycleComponent) OnDismount() {
 	c.dismountCount++
 }
 
-func (c *lifecycleComponent) Render(ctx RenderContext) RenderResult {
+func (c *lifecycleComponent) Render(ctx Context) RenderResult {
 	return RenderResult{Lines: c.lines}
 }
 
@@ -721,11 +721,11 @@ type interactiveComponent struct {
 	consume bool     // if true, HandleKeyPress returns true
 }
 
-func (c *interactiveComponent) Render(ctx RenderContext) RenderResult {
+func (c *interactiveComponent) Render(ctx Context) RenderResult {
 	return RenderResult{Lines: c.lines}
 }
 
-func (c *interactiveComponent) HandleKeyPress(_ EventContext, ev uv.KeyPressEvent) bool {
+func (c *interactiveComponent) HandleKeyPress(_ Context, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	desc := string(key.Code)
 	if key.Text != "" {
@@ -743,7 +743,7 @@ type interactiveContainer struct {
 	consume bool
 }
 
-func (c *interactiveContainer) HandleKeyPress(_ EventContext, ev uv.KeyPressEvent) bool {
+func (c *interactiveContainer) HandleKeyPress(_ Context, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	desc := string(key.Code)
 	if key.Text != "" {
@@ -856,15 +856,15 @@ type mouseComponent struct {
 	Compo
 	lines        []string
 	lastEvent    *MouseEvent
-	lastCtx      *EventContext
+	lastCtx      *Context
 	consumeMouse bool
 }
 
-func (m *mouseComponent) Render(ctx RenderContext) RenderResult {
+func (m *mouseComponent) Render(ctx Context) RenderResult {
 	return RenderResult{Lines: m.lines}
 }
 
-func (m *mouseComponent) HandleMouse(ctx EventContext, ev MouseEvent) bool {
+func (m *mouseComponent) HandleMouse(ctx Context, ev MouseEvent) bool {
 	m.lastEvent = &ev
 	m.lastCtx = &ctx
 	return m.consumeMouse
@@ -961,8 +961,8 @@ type markingParent struct {
 	inline Component
 }
 
-func (p *markingParent) Render(ctx RenderContext) RenderResult {
-	inlined := p.RenderChildInline(p.inline, ctx)
+func (p *markingParent) Render(ctx Context) RenderResult {
+	inlined := p.RenderChildInline(ctx, p.inline)
 	line := "prefix" + inlined + "suffix"
 	return RenderResult{Lines: []string{line}}
 }

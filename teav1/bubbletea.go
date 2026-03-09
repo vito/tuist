@@ -50,7 +50,7 @@ func (b *Wrap) OnQuit(fn func()) {
 
 // OnMount captures the dispatch function for scheduling command results
 // back on the UI goroutine, and calls the model's Init().
-func (b *Wrap) OnMount(ctx tuist.EventContext) {
+func (b *Wrap) OnMount(ctx tuist.Context) {
 	b.dispatch = ctx.Dispatch
 	if cmd := b.model.Init(); cmd != nil {
 		b.execCmd(cmd)
@@ -102,7 +102,7 @@ func (b *Wrap) execCmd(cmd tea.Cmd) {
 }
 
 // Render implements tuist.Component.
-func (b *Wrap) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (b *Wrap) Render(ctx tuist.Context) tuist.RenderResult {
 	if ctx.Width != b.width || ctx.ScreenHeight != b.height {
 		b.width = ctx.Width
 		b.height = ctx.ScreenHeight
@@ -125,7 +125,7 @@ func (b *Wrap) Render(ctx tuist.RenderContext) tuist.RenderResult {
 }
 
 // HandleKeyPress implements tuist.Interactive.
-func (b *Wrap) HandleKeyPress(_ tuist.EventContext, ev uv.KeyPressEvent) bool {
+func (b *Wrap) HandleKeyPress(_ tuist.Context, ev uv.KeyPressEvent) bool {
 	b.updateModel(uvKeyToV1(uv.Key(ev)))
 	return true // bubbletea models consume all key events
 }

@@ -94,7 +94,7 @@ func runLogs(initialLines int) error {
 	}
 
 	// Input handler.
-	tui.AddInputListener(func(ctx tuist.EventContext, ev uv.Event) bool {
+	tui.AddInputListener(func(ctx tuist.Context, ev uv.Event) bool {
 		kp, ok := ev.(uv.KeyPressEvent)
 		if !ok {
 			return false
@@ -311,7 +311,7 @@ func newStressLog(n int) *stressLog {
 	return s
 }
 
-func (s *stressLog) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (s *stressLog) Render(ctx tuist.Context) tuist.RenderResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -393,7 +393,7 @@ func (s *statusBarComponent) set(line string) {
 	s.mu.Unlock()
 	s.Update()
 }
-func (s *statusBarComponent) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (s *statusBarComponent) Render(ctx tuist.Context) tuist.RenderResult {
 	s.mu.Lock()
 	line := s.line
 	s.mu.Unlock()
@@ -405,6 +405,6 @@ type staticLines struct {
 	lines []string
 }
 
-func (s *staticLines) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (s *staticLines) Render(ctx tuist.Context) tuist.RenderResult {
 	return tuist.RenderResult{Lines: s.lines}
 }

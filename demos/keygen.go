@@ -149,7 +149,7 @@ type inlineInput struct {
 
 // Render produces the styled inline text for this input. The parent
 // embeds it within a line via [Compo.RenderChildInline].
-func (inp *inlineInput) Render(_ tuist.RenderContext) tuist.RenderResult {
+func (inp *inlineInput) Render(_ tuist.Context) tuist.RenderResult {
 	var content string
 	if inp.editing {
 		content = inp.renderEdit()
@@ -190,7 +190,7 @@ func (inp *inlineInput) renderEdit() string {
 // HandleMouse implements tuist.MouseEnabled — handles clicks to start editing.
 // The framework only calls this when the mouse is within the input's
 // InlineRegion, so no hit testing is needed.
-func (inp *inlineInput) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) bool {
+func (inp *inlineInput) HandleMouse(ctx tuist.Context, ev tuist.MouseEvent) bool {
 	switch ev.MouseEvent.(type) {
 	case uv.MouseClickEvent:
 		if ev.Mouse().Button != uv.MouseLeft {
@@ -205,7 +205,7 @@ func (inp *inlineInput) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent)
 }
 
 // SetHovered implements tuist.Hoverable — updates hover highlight.
-func (inp *inlineInput) SetHovered(_ tuist.EventContext, hovered bool) {
+func (inp *inlineInput) SetHovered(_ tuist.Context, hovered bool) {
 	if hovered != inp.hovered {
 		inp.hovered = hovered
 		inp.Update() // propagates to chrome
@@ -214,14 +214,14 @@ func (inp *inlineInput) SetHovered(_ tuist.EventContext, hovered bool) {
 
 // SetFocused implements tuist.Focusable — commits the edit when focus
 // moves away (e.g. user clicks on another component).
-func (inp *inlineInput) SetFocused(_ tuist.EventContext, focused bool) {
+func (inp *inlineInput) SetFocused(_ tuist.Context, focused bool) {
 	if !focused && inp.editing {
 		inp.applyEdit()
 	}
 }
 
 // HandleKeyPress implements tuist.Interactive — handles editing keys.
-func (inp *inlineInput) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
+func (inp *inlineInput) HandleKeyPress(ctx tuist.Context, ev uv.KeyPressEvent) bool {
 	if !inp.editing {
 		return false
 	}
@@ -290,7 +290,7 @@ func (inp *inlineInput) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEve
 	return true // consume all keys while editing
 }
 
-func (inp *inlineInput) startEdit(ctx tuist.EventContext) {
+func (inp *inlineInput) startEdit(ctx tuist.Context) {
 	inp.buf = []rune(fmt.Sprintf(inp.format, *inp.value))
 	inp.editing = true
 	inp.cursor = len(inp.buf)
@@ -369,7 +369,7 @@ func newFractalView() *fractalView {
 	return f
 }
 
-func (f *fractalView) notify(ctx tuist.EventContext, msg string) {
+func (f *fractalView) notify(ctx tuist.Context, msg string) {
 	bubble := &notificationBubble{msg: msg}
 	rendered := bubbleStyle.Render(msg)
 	bubbleW := lipgloss.Width(rendered)
@@ -421,7 +421,7 @@ func (f *fractalView) removeNotification(n *activeNotification) {
 // HandleMouse implements tuist.MouseEnabled — clicking on the fractal
 // reclaims keyboard focus, which commits any active coordinate edit
 // via the inlineInput's Focusable.SetFocused(false).
-func (f *fractalView) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) bool {
+func (f *fractalView) HandleMouse(ctx tuist.Context, ev tuist.MouseEvent) bool {
 	if _, ok := ev.MouseEvent.(uv.MouseClickEvent); ok {
 		ctx.SetFocus(f)
 		return true
@@ -429,7 +429,7 @@ func (f *fractalView) HandleMouse(ctx tuist.EventContext, ev tuist.MouseEvent) b
 	return false
 }
 
-func (f *fractalView) HandleKeyPress(ctx tuist.EventContext, ev uv.KeyPressEvent) bool {
+func (f *fractalView) HandleKeyPress(ctx tuist.Context, ev uv.KeyPressEvent) bool {
 	key := uv.Key(ev)
 	switch {
 	case key.Text == "q" || (key.Code == 'c' && key.Mod == uv.ModCtrl):
@@ -486,7 +486,7 @@ func (f *fractalView) scale() float64 {
 	return 3.0 * math.Exp(-0.003*float64(f.frame))
 }
 
-func (f *fractalView) OnMount(ctx tuist.EventContext) {
+func (f *fractalView) OnMount(ctx tuist.Context) {
 	f.benchStart = time.Now()
 
 	// In bench mode, Render() self-advances — no goroutine needed.
@@ -515,7 +515,7 @@ func (f *fractalView) OnMount(ctx tuist.EventContext) {
 	}
 }
 
-func (f *fractalView) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (f *fractalView) Render(ctx tuist.Context) tuist.RenderResult {
 	f.renderCount++
 
 	// In bench mode each render advances the frame and immediately
@@ -548,7 +548,7 @@ func (f *fractalView) Render(ctx tuist.RenderContext) tuist.RenderResult {
 	maxIter := min(64+frame/10, 256)
 
 	// Reuse line buffer from framework's double-buffer.
-	lines := ctx.Recycle
+	lines := ctx.Recycle()
 	if cap(lines) < h {
 		lines = make([]string, h)
 	} else {
@@ -615,7 +615,7 @@ func newChromeBar(fractal *fractalView) *chromeBar {
 	return c
 }
 
-func (c *chromeBar) OnMount(_ tuist.EventContext) {
+func (c *chromeBar) OnMount(_ tuist.Context) {
 	c.start = time.Now()
 }
 
@@ -645,7 +645,7 @@ func (c *chromeBar) isEditing() bool {
 	return c.reInput.editing || c.imInput.editing
 }
 
-func (c *chromeBar) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (c *chromeBar) Render(ctx tuist.Context) tuist.RenderResult {
 	f := c.fractal
 	elapsed := time.Since(c.start).Truncate(time.Second)
 	w := ctx.Width
@@ -654,9 +654,9 @@ func (c *chromeBar) Render(ctx tuist.RenderContext) tuist.RenderResult {
 
 	title := topTitleStyle.Render(" ◆ MANDELBROT ")
 	reLabel := topLabelStyle.Render(" re ")
-	reValue := c.RenderChildInline(c.reInput, ctx)
+	reValue := c.RenderChildInline(ctx, c.reInput)
 	imLabel := topLabelStyle.Render("  im ")
-	imValue := c.RenderChildInline(c.imInput, ctx)
+	imValue := c.RenderChildInline(ctx, c.imInput)
 	zoom := topLabelStyle.Render("  zoom ") + topValueStyle.Render(fmt.Sprintf("%.2e", 3.0/f.scale()))
 	iter := topLabelStyle.Render("  iter ") + topValueStyle.Render(fmt.Sprintf("%d", min(64+f.frame/10, 256)))
 	state := ""
@@ -729,7 +729,7 @@ func (fl *frameLog) appendFrame(frame int, re, im, scale float64) {
 	fl.Update()
 }
 
-func (fl *frameLog) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (fl *frameLog) Render(ctx tuist.Context) tuist.RenderResult {
 	return tuist.RenderResult{Lines: fl.lines}
 }
 
@@ -748,7 +748,7 @@ var bubbleStyle = lipgloss.NewStyle().
 	BorderForeground(lipgloss.Color("229")).
 	Padding(0, 1)
 
-func (n *notificationBubble) Render(ctx tuist.RenderContext) tuist.RenderResult {
+func (n *notificationBubble) Render(ctx tuist.Context) tuist.RenderResult {
 	rendered := bubbleStyle.Render(n.msg)
 	return tuist.RenderResult{Lines: strings.Split(rendered, "\n")}
 }
