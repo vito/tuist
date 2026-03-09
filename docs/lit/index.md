@@ -195,24 +195,22 @@ input to the overlay component.
 
 ## Built-in components
 
-\list{
-  `Container` — renders children sequentially (vertical stack).
+* `Container` — renders children sequentially (vertical stack).
   `AddChild`, `RemoveChild`, `Clear`.
-}{
-  `Slot` — holds one replaceable child. `Set(child)` swaps it; old
+
+* `Slot` — holds one replaceable child. `Set(child)` swaps it; old
   child is dismounted automatically.
-}{
-  `TextInput` — single/multiline text editor with cursor, prompt,
+
+*  `TextInput` — single/multiline text editor with cursor, prompt,
   word/subword movement, kill-line, ghost suggestions, paste support, and a
   `KeyInterceptor` hook.
-}{
-  `Spinner` — animated braille spinner. Starts on mount, stops on
+
+* `Spinner` — animated braille spinner. Starts on mount, stops on
   dismount. Configurable `Style` and `Label`.
-}{
-  `CompletionMenu` — dropdown autocomplete wired to a `TextInput`.
+
+* `CompletionMenu` — dropdown autocomplete wired to a `TextInput`.
   Takes a `CompletionProvider`, manages overlay lifecycle, handles
   keyboard nav, and shows a detail panel. Cursor-group-aware.
-}
 
 ## Mouse
 
