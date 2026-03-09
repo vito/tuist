@@ -111,13 +111,13 @@ func (b *Wrap[T]) execCmd(cmd tea.Cmd) {
 
 // Render implements tuist.Component.
 func (b *Wrap[T]) Render(ctx tuist.Context) tuist.RenderResult {
-	if ctx.Width != b.width || ctx.ScreenHeight != b.height {
+	if ctx.Width != b.width || ctx.ScreenHeight() != b.height {
 		b.width = ctx.Width
-		b.height = ctx.ScreenHeight
+		b.height = ctx.ScreenHeight()
 		var cmd tea.Cmd
 		b.model, cmd = b.model.Update(tea.WindowSizeMsg{
 			Width:  ctx.Width,
-			Height: ctx.ScreenHeight,
+			Height: ctx.ScreenHeight(),
 		})
 		if cmd != nil {
 			b.execCmd(cmd)

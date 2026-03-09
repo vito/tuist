@@ -199,6 +199,7 @@ type TUI struct {
 	clearOnShrink       bool
 	maxLinesRendered    int
 	previousViewportTop int
+	screenHeight        int // snapshotted once per frame from terminal.Rows()
 
 	overlayStack []*overlayEntry
 
@@ -1150,6 +1151,7 @@ func (t *TUI) doRender() {
 	// should not change mid-frame.
 	width := t.terminal.Columns()
 	height := t.terminal.Rows()
+	t.screenHeight = height
 
 	var stats RenderStats
 	stats.OverlayCount = len(t.overlayStack)
@@ -1170,10 +1172,9 @@ func (t *TUI) doRender() {
 func (t *TUI) renderFrame(width, height int, stats *RenderStats) ([]string, *CursorPos, []ComponentStat) {
 	renderStart := time.Now()
 	ctx := Context{
-		Context:      context.Background(),
-		tui:          t,
-		Width:        width,
-		ScreenHeight: height,
+		Context: context.Background(),
+		tui:     t,
+		Width:   width,
 	}
 	var compStats []ComponentStat
 	if t.debugWriter != nil {
@@ -1647,11 +1648,10 @@ func (t *TUI) compositeOverlays(lines []string, baseCursor *CursorPos, overlays 
 			renderH = maxH
 		}
 		oResult := renderComponent(e.component, Context{
-			Context:      context.Background(),
-			tui:          t,
-			Width:        w,
-			Height:       renderH,
-			ScreenHeight: termH,
+			Context: context.Background(),
+			tui:     t,
+			Width:   w,
+			Height:  renderH,
 		})
 		oLines := oResult.Lines
 		if maxHSet && len(oLines) > maxH {

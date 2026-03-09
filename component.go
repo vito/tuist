@@ -23,9 +23,8 @@ import (
 // the source component is dismounted, so background goroutines spawned
 // from OnMount can use it as a cancellation signal.
 //
-// During Render, Width, Height, and ScreenHeight carry layout
-// constraints. Outside Render (event handlers, lifecycle hooks) they
-// are zero.
+// During Render, Width and Height carry layout constraints. Outside
+// Render (event handlers, lifecycle hooks) they are zero.
 type Context struct {
 	context.Context
 
@@ -35,14 +34,21 @@ type Context struct {
 	// Height is the allocated height in lines. 0 means unconstrained
 	// (the component may return as many lines as it wants).
 	Height int
-	// ScreenHeight is the actual terminal height in rows. It is always
-	// set regardless of whether Height constrains the component. Components
-	// that render inline but want to fill the viewport can use this.
-	ScreenHeight int
 
 	tui     *TUI
 	source  Component
 	recycle []string
+}
+
+// ScreenHeight returns the actual terminal height in rows. It is always
+// available regardless of whether Height constrains the component.
+// Components that render inline but want to fill the viewport can use
+// this. Returns 0 if the component is not mounted in a TUI.
+func (ctx Context) ScreenHeight() int {
+	if ctx.tui != nil {
+		return ctx.tui.screenHeight
+	}
+	return 0
 }
 
 // Recycle returns a pre-allocated []string from the previous render,
@@ -57,7 +63,6 @@ func (ctx Context) Recycle() []string {
 }
 
 // Resize returns a copy of ctx with the given Width and Height.
-// ScreenHeight is preserved.
 func (ctx Context) Resize(w, h int) Context {
 	ctx.Width = w
 	ctx.Height = h
@@ -291,8 +296,8 @@ func (c *Compo) compo() *Compo { return c }
 // cleanup). [MouseEnabled] children have their output wrapped with
 // zone markers for positional mouse dispatch.
 //
-// The ctx argument carries layout constraints (Width, Height,
-// ScreenHeight). Pass-through rendering inherits the parent's
+// The ctx argument carries layout constraints (Width, Height).
+// Pass-through rendering inherits the parent's
 // constraints; use [Context.Resize] for adjusted dimensions:
 //
 //	func (w *MyWrapper) Render(ctx tuist.Context) tuist.RenderResult {

@@ -534,7 +534,7 @@ func (f *fractalView) Render(ctx tuist.Context) tuist.RenderResult {
 
 	w := ctx.Width
 	// Reserve 2 lines for chrome.
-	h := max(ctx.ScreenHeight-2, 1)
+	h := max(ctx.ScreenHeight()-2, 1)
 
 	// Exponential zoom: starts wide, zooms deeper each frame.
 	// Rates are tuned for ~165fps so the zoom feels the same as 30fps.

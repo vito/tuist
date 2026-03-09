@@ -172,7 +172,7 @@ func (g *grid) navigate(ctx tuist.Context, code rune) bool {
 
 func (g *grid) Render(ctx tuist.Context) tuist.RenderResult {
 	w := ctx.Width
-	h := ctx.ScreenHeight - 1 // reserve 1 line for status bar
+	h := ctx.ScreenHeight() - 1 // reserve 1 line for status bar
 
 	cellW := max(w/10, 6)
 	cellH := max(h/10, 3)
