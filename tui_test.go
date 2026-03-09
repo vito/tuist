@@ -1,6 +1,7 @@
 package tuist
 
 import (
+	"context"
 	"io"
 	"strings"
 	"testing"
@@ -9,6 +10,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testContext returns a Context suitable for unit tests, with a valid
+// background context.Context and the given dimensions.
+func testContext(width int, height ...int) Context {
+	ctx := Context{Context: context.Background(), Width: width}
+	if len(height) > 0 {
+		ctx.Height = height[0]
+	}
+	return ctx
+}
 
 // mockTerminal records writes and simulates a fixed-size terminal.
 type mockTerminal struct {
@@ -160,16 +171,16 @@ func TestSlotComponent(t *testing.T) {
 	slot := NewSlot(a)
 
 	// Initial render — child has no cache yet, so it renders.
-	r := renderComponent(slot, Context{Width: 40})
+	r := renderComponent(slot, testContext(40))
 	assert.Equal(t, []string{"child-a"}, r.Lines)
 
 	// Second render — child is clean (nobody called Update), cached.
-	r = renderComponent(slot, Context{Width: 40})
+	r = renderComponent(slot, testContext(40))
 	assert.Equal(t, []string{"child-a"}, r.Lines)
 
 	// Swap child — Slot.Set marks dirty.
 	slot.Set(b)
-	r = renderComponent(slot, Context{Width: 40})
+	r = renderComponent(slot, testContext(40))
 	assert.Equal(t, []string{"child-b-1", "child-b-2"}, r.Lines)
 }
 
@@ -294,7 +305,7 @@ func TestContainerDirtyPropagation(t *testing.T) {
 	c.AddChild(c2)
 
 	// First render — children are dirty, both render.
-	ctx := Context{Width: 40}
+	ctx := testContext(40)
 	r := renderComponent(c, ctx)
 	assert.Equal(t, []string{"a", "b"}, r.Lines)
 	assert.Equal(t, 1, c1.renderCount)
