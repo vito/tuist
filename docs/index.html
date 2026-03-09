@@ -53,33 +53,33 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 
   <h2 class="section-header"><a id="minimal-example"></a>Minimal example</h2>
 
-<p>Embed <code>Compo</code>, implement <code>Render</code>, call <code>Update()</code> when state changes.</p><pre style="color:#c9d1d9;background-color:#0d1117"><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Counter</span> <span style="color:#ff7b72;font-weight:bold">struct</span> {
-    <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Compo</span>
-    <span style="color:#ffa657">Count</span> <span style="color:#79c0ff">int</span>
-}
-
-<span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Counter</span>) <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span> {
-    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span>{
-        <span style="color:#ffa657">Lines</span>: []<span style="color:#79c0ff">string</span>{<span style="color:#ffa657">fmt</span>.<span style="color:#d2a8ff">Sprintf</span>(<span style="color:#a5d6ff">&#34;Count: %d&#34;</span>, <span style="color:#ffa657">c</span>.<span style="color:#ffa657">Count</span>)},
-    }
-}
-
-<span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Counter</span>) <span style="color:#d2a8ff">HandleKeyPress</span>(<span style="color:#ffa657">_</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">KeyPressEvent</span>) <span style="color:#79c0ff">bool</span> {
-    <span style="color:#ffa657">c</span>.<span style="color:#ffa657">Count</span><span style="color:#ff7b72">++</span>
-    <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">Update</span>()
-    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">true</span>
-}
-
-<span style="color:#6e7681;font-style:italic">// startup
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ffa657">term</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">tuist</span>.<span style="color:#d2a8ff">NewStdTerminal</span>()
-<span style="color:#ffa657">tui</span>  <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">tuist</span>.<span style="color:#d2a8ff">New</span>(<span style="color:#ffa657">term</span>)
-<span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">Start</span>()
-<span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">Dispatch</span>(<span style="color:#ff7b72;font-weight:bold">func</span>() {
-    <span style="color:#ffa657">counter</span> <span style="color:#ff7b72">:=</span> <span style="color:#ff7b72">&amp;</span><span style="color:#ffa657">Counter</span>{}
-    <span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">AddChild</span>(<span style="color:#ffa657">counter</span>)
-    <span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">SetFocus</span>(<span style="color:#ffa657">counter</span>)
-})
-</pre>
+<p>Embed <code>Compo</code>, implement <code>Render</code>, call <code>Update()</code> when state changes.</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Counter</span> <span style="color:#ff7b72;font-weight:bold">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Compo</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">Count</span> <span style="color:#79c0ff">int</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Counter</span>) <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">Lines</span>: []<span style="color:#79c0ff">string</span>{<span style="color:#ffa657">fmt</span>.<span style="color:#d2a8ff">Sprintf</span>(<span style="color:#a5d6ff">&#34;Count: %d&#34;</span>, <span style="color:#ffa657">c</span>.<span style="color:#ffa657">Count</span>)},
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Counter</span>) <span style="color:#d2a8ff">HandleKeyPress</span>(<span style="color:#ffa657">_</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">KeyPressEvent</span>) <span style="color:#79c0ff">bool</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">c</span>.<span style="color:#ffa657">Count</span><span style="color:#ff7b72">++</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">Update</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">true</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// startup</span>
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">term</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">tuist</span>.<span style="color:#d2a8ff">NewStdTerminal</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">tui</span>  <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">tuist</span>.<span style="color:#d2a8ff">New</span>(<span style="color:#ffa657">term</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">Start</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">Dispatch</span>(<span style="color:#ff7b72;font-weight:bold">func</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">counter</span> <span style="color:#ff7b72">:=</span> <span style="color:#ff7b72">&amp;</span><span style="color:#ffa657">Counter</span>{}
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">AddChild</span>(<span style="color:#ffa657">counter</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">SetFocus</span>(<span style="color:#ffa657">counter</span>)
+</span></span><span style="display:flex;"><span>})
+</span></span></code></pre>
 
 
   
@@ -87,20 +87,20 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 
   <h2 class="section-header"><a id="how-it-works"></a>How it works</h2>
 
-<p>Components form a tree. Each embeds <code>Compo</code> which tracks a generation counter. <code>Update()</code> bumps the counter and propagates upward. On each frame, the framework skips any subtree whose generation hasn&#39;t changed — cached result returned in O(1).</p><p>The rendered output (a <code>[]string</code>, one per line) is diffed against the previous frame. Only changed lines are written to the terminal, wrapped in synchronized output (DEC 2026) to avoid flicker.</p><p>All component state lives on a single goroutine. The event loop drains input events and <code>Dispatch()</code> closures, coalesces them, then renders once:</p><pre style="color:#c9d1d9;background-color:#0d1117"><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">t</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">TUI</span>) <span style="color:#d2a8ff">runLoop</span>() {
-    <span style="color:#ff7b72;font-weight:bold">for</span> {
-        <span style="color:#ff7b72;font-weight:bold">select</span> {
-        <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ffa657">ev</span> <span style="color:#ff7b72">:=</span> <span style="color:#ff7b72">&lt;-</span><span style="color:#ffa657">t</span>.<span style="color:#ffa657">eventCh</span>:    <span style="color:#6e7681;font-style:italic">// decoded terminal input
-</span><span style="color:#6e7681;font-style:italic"></span>            <span style="color:#ffa657">t</span>.<span style="color:#d2a8ff">dispatchEvent</span>(<span style="color:#ffa657">ev</span>)
-        <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ff7b72">&lt;-</span><span style="color:#ffa657">t</span>.<span style="color:#ffa657">dispatchCh</span>:       <span style="color:#6e7681;font-style:italic">// closures from Dispatch()
-</span><span style="color:#6e7681;font-style:italic"></span>            <span style="color:#ffa657">t</span>.<span style="color:#d2a8ff">drainDispatchQ</span>()
-        <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ff7b72">&lt;-</span><span style="color:#ffa657">t</span>.<span style="color:#ffa657">renderCh</span>:         <span style="color:#6e7681;font-style:italic">// render request
-</span><span style="color:#6e7681;font-style:italic"></span>        }
-        <span style="color:#ffa657">t</span>.<span style="color:#d2a8ff">drainAll</span>()             <span style="color:#6e7681;font-style:italic">// coalesce rapid events
-</span><span style="color:#6e7681;font-style:italic"></span>        <span style="color:#ffa657">t</span>.<span style="color:#d2a8ff">doRender</span>()             <span style="color:#6e7681;font-style:italic">// render tree → diff → write deltas
-</span><span style="color:#6e7681;font-style:italic"></span>    }
-}
-</pre>
+<p>Components form a tree. Each embeds <code>Compo</code> which tracks a generation counter. <code>Update()</code> bumps the counter and propagates upward. On each frame, the framework skips any subtree whose generation hasn&#39;t changed — cached result returned in O(1).</p><p>The rendered output (a <code>[]string</code>, one per line) is diffed against the previous frame. Only changed lines are written to the terminal, wrapped in synchronized output (DEC 2026) to avoid flicker.</p><p>All component state lives on a single goroutine. The event loop drains input events and <code>Dispatch()</code> closures, coalesces them, then renders once:</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">t</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">TUI</span>) <span style="color:#d2a8ff">runLoop</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">for</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#ff7b72;font-weight:bold">select</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ffa657">ev</span> <span style="color:#ff7b72">:=</span> <span style="color:#ff7b72">&lt;-</span><span style="color:#ffa657">t</span>.<span style="color:#ffa657">eventCh</span>:    <span style="color:#6e7681;font-style:italic">// decoded terminal input</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#ffa657">t</span>.<span style="color:#d2a8ff">dispatchEvent</span>(<span style="color:#ffa657">ev</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ff7b72">&lt;-</span><span style="color:#ffa657">t</span>.<span style="color:#ffa657">dispatchCh</span>:       <span style="color:#6e7681;font-style:italic">// closures from Dispatch()</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#ffa657">t</span>.<span style="color:#d2a8ff">drainDispatchQ</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ff7b72">&lt;-</span><span style="color:#ffa657">t</span>.<span style="color:#ffa657">renderCh</span>:         <span style="color:#6e7681;font-style:italic">// render request</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">t</span>.<span style="color:#d2a8ff">drainAll</span>()             <span style="color:#6e7681;font-style:italic">// coalesce rapid events</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">t</span>.<span style="color:#d2a8ff">doRender</span>()             <span style="color:#6e7681;font-style:italic">// render tree → diff → write deltas</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre>
 
 
   
@@ -108,32 +108,32 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 
   <h2 class="section-header"><a id="interfaces"></a>Interfaces</h2>
 
-<p>Only <code>Render</code> is required. Everything else is opt-in:</p><pre style="color:#c9d1d9;background-color:#0d1117"><span style="color:#6e7681;font-style:italic">// Every component must embed Compo and implement Render.
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Component</span> <span style="color:#ff7b72;font-weight:bold">interface</span> {
-    <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>) <span style="color:#ffa657">RenderResult</span>
-}
-
-<span style="color:#6e7681;font-style:italic">// Keyboard input. Events bubble up the parent chain if handler returns false.
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Interactive</span> <span style="color:#ff7b72;font-weight:bold">interface</span> {
-    <span style="color:#d2a8ff">HandleKeyPress</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">KeyPressEvent</span>) <span style="color:#79c0ff">bool</span>
-}
-
-<span style="color:#6e7681;font-style:italic">// Mouse events with component-relative coordinates. Positional dispatch via zone markers.
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">MouseEnabled</span> <span style="color:#ff7b72;font-weight:bold">interface</span> {
-    <span style="color:#d2a8ff">HandleMouse</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">MouseEvent</span>) <span style="color:#79c0ff">bool</span>
-}
-
-<span style="color:#6e7681;font-style:italic">// Lifecycle. Mount context is cancelled on dismount — use it to bound goroutines.
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Mounter</span>    <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">OnMount</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>) }
-<span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Dismounter</span> <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">OnDismount</span>() }
-
-<span style="color:#6e7681;font-style:italic">// Focus/hover state notifications.
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Focusable</span>  <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">SetFocused</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#79c0ff">bool</span>) }
-<span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Hoverable</span>  <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">SetHovered</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#79c0ff">bool</span>) }
-
-<span style="color:#6e7681;font-style:italic">// Bracketed paste.
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Pasteable</span>  <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">HandlePaste</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">PasteEvent</span>) <span style="color:#79c0ff">bool</span> }
-</pre>
+<p>Only <code>Render</code> is required. Everything else is opt-in:</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Every component must embed Compo and implement Render.</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Component</span> <span style="color:#ff7b72;font-weight:bold">interface</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>) <span style="color:#ffa657">RenderResult</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Keyboard input. Events bubble up the parent chain if handler returns false.</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Interactive</span> <span style="color:#ff7b72;font-weight:bold">interface</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#d2a8ff">HandleKeyPress</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">KeyPressEvent</span>) <span style="color:#79c0ff">bool</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Mouse events with component-relative coordinates. Positional dispatch via zone markers.</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">MouseEnabled</span> <span style="color:#ff7b72;font-weight:bold">interface</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#d2a8ff">HandleMouse</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">MouseEvent</span>) <span style="color:#79c0ff">bool</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Lifecycle. Mount context is cancelled on dismount — use it to bound goroutines.</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Mounter</span>    <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">OnMount</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>) }
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Dismounter</span> <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">OnDismount</span>() }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Focus/hover state notifications.</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Focusable</span>  <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">SetFocused</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#79c0ff">bool</span>) }
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Hoverable</span>  <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">SetHovered</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#79c0ff">bool</span>) }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Bracketed paste.</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">type</span> <span style="color:#ffa657">Pasteable</span>  <span style="color:#ff7b72;font-weight:bold">interface</span> { <span style="color:#d2a8ff">HandlePaste</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">PasteEvent</span>) <span style="color:#79c0ff">bool</span> }
+</span></span></code></pre>
 
 
   
@@ -141,29 +141,29 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 
   <h2 class="section-header"><a id="composition"></a>Composition</h2>
 
-<p><code>RenderChild</code> is how you compose components. It wires up the parent pointer, handles mount/dismount lifecycle, and wraps <code>MouseEnabled</code> children in zone markers for positional dispatch. Always use it instead of calling <code>child.Render()</code> directly.</p><pre style="color:#c9d1d9;background-color:#0d1117"><span style="color:#6e7681;font-style:italic">// Vertical stack — Container does this internally
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">MyLayout</span>) <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span> {
-    <span style="color:#ff7b72;font-weight:bold">var</span> <span style="color:#ffa657">lines</span> []<span style="color:#79c0ff">string</span>
-    <span style="color:#ff7b72;font-weight:bold">for</span> <span style="color:#ffa657">_</span>, <span style="color:#ffa657">child</span> <span style="color:#ff7b72">:=</span> <span style="color:#ff7b72;font-weight:bold">range</span> <span style="color:#ffa657">c</span>.<span style="color:#ffa657">children</span> {
-        <span style="color:#ffa657">r</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">RenderChild</span>(<span style="color:#ffa657">ctx</span>, <span style="color:#ffa657">child</span>)
-        <span style="color:#ffa657">lines</span> = <span style="color:#d2a8ff">append</span>(<span style="color:#ffa657">lines</span>, <span style="color:#ffa657">r</span>.<span style="color:#ffa657">Lines</span><span style="color:#ff7b72">...</span>)
-    }
-    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span>{<span style="color:#ffa657">Lines</span>: <span style="color:#ffa657">lines</span>}
-}
-
-<span style="color:#6e7681;font-style:italic">// With adjusted constraints — ctx.Resize returns a copy with new Width/Height
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">b</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Border</span>) <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span> {
-    <span style="color:#ffa657">inner</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">b</span>.<span style="color:#d2a8ff">RenderChild</span>(<span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">Resize</span>(<span style="color:#ffa657">ctx</span>.<span style="color:#ffa657">Width</span><span style="color:#ff7b72">-</span><span style="color:#79c0ff">2</span>, <span style="color:#ffa657">ctx</span>.<span style="color:#ffa657">Height</span><span style="color:#ff7b72">-</span><span style="color:#79c0ff">2</span>), <span style="color:#ffa657">b</span>.<span style="color:#ffa657">child</span>)
-    <span style="color:#6e7681;font-style:italic">// ... wrap inner.Lines with border chrome
-</span><span style="color:#6e7681;font-style:italic"></span>}
-
-<span style="color:#6e7681;font-style:italic">// Inline — for embedding a child within a single line (e.g. a clickable value in a status bar)
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Chrome</span>) <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span> {
-    <span style="color:#ffa657">re</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">RenderChildInline</span>(<span style="color:#ffa657">ctx</span>, <span style="color:#ffa657">c</span>.<span style="color:#ffa657">reInput</span>)  <span style="color:#6e7681;font-style:italic">// returns string, zones auto-wired
-</span><span style="color:#6e7681;font-style:italic"></span>    <span style="color:#ffa657">im</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">RenderChildInline</span>(<span style="color:#ffa657">ctx</span>, <span style="color:#ffa657">c</span>.<span style="color:#ffa657">imInput</span>)
-    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span>{<span style="color:#ffa657">Lines</span>: []<span style="color:#79c0ff">string</span>{<span style="color:#a5d6ff">&#34;re &#34;</span> <span style="color:#ff7b72">+</span> <span style="color:#ffa657">re</span> <span style="color:#ff7b72">+</span> <span style="color:#a5d6ff">&#34;  im &#34;</span> <span style="color:#ff7b72">+</span> <span style="color:#ffa657">im</span>}}
-}
-</pre><p>Children rendered via <code>RenderChild</code> that are no longer rendered on a subsequent frame are automatically dismounted (orphan cleanup).</p>
+<p><code>RenderChild</code> is how you compose components. It wires up the parent pointer, handles mount/dismount lifecycle, and wraps <code>MouseEnabled</code> children in zone markers for positional dispatch. Always use it instead of calling <code>child.Render()</code> directly.</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Vertical stack — Container does this internally</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">MyLayout</span>) <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">var</span> <span style="color:#ffa657">lines</span> []<span style="color:#79c0ff">string</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">for</span> <span style="color:#ffa657">_</span>, <span style="color:#ffa657">child</span> <span style="color:#ff7b72">:=</span> <span style="color:#ff7b72;font-weight:bold">range</span> <span style="color:#ffa657">c</span>.<span style="color:#ffa657">children</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">r</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">RenderChild</span>(<span style="color:#ffa657">ctx</span>, <span style="color:#ffa657">child</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">lines</span> = <span style="color:#d2a8ff">append</span>(<span style="color:#ffa657">lines</span>, <span style="color:#ffa657">r</span>.<span style="color:#ffa657">Lines</span><span style="color:#ff7b72">...</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span>{<span style="color:#ffa657">Lines</span>: <span style="color:#ffa657">lines</span>}
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// With adjusted constraints — ctx.Resize returns a copy with new Width/Height</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">b</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Border</span>) <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">inner</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">b</span>.<span style="color:#d2a8ff">RenderChild</span>(<span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">Resize</span>(<span style="color:#ffa657">ctx</span>.<span style="color:#ffa657">Width</span><span style="color:#ff7b72">-</span><span style="color:#79c0ff">2</span>, <span style="color:#ffa657">ctx</span>.<span style="color:#ffa657">Height</span><span style="color:#ff7b72">-</span><span style="color:#79c0ff">2</span>), <span style="color:#ffa657">b</span>.<span style="color:#ffa657">child</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#6e7681;font-style:italic">// ... wrap inner.Lines with border chrome</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Inline — for embedding a child within a single line (e.g. a clickable value in a status bar)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Chrome</span>) <span style="color:#d2a8ff">Render</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">re</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">RenderChildInline</span>(<span style="color:#ffa657">ctx</span>, <span style="color:#ffa657">c</span>.<span style="color:#ffa657">reInput</span>)  <span style="color:#6e7681;font-style:italic">// returns string, zones auto-wired</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">im</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">RenderChildInline</span>(<span style="color:#ffa657">ctx</span>, <span style="color:#ffa657">c</span>.<span style="color:#ffa657">imInput</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">RenderResult</span>{<span style="color:#ffa657">Lines</span>: []<span style="color:#79c0ff">string</span>{<span style="color:#a5d6ff">&#34;re &#34;</span> <span style="color:#ff7b72">+</span> <span style="color:#ffa657">re</span> <span style="color:#ff7b72">+</span> <span style="color:#a5d6ff">&#34;  im &#34;</span> <span style="color:#ff7b72">+</span> <span style="color:#ffa657">im</span>}}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre><p>Children rendered via <code>RenderChild</code> that are no longer rendered on a subsequent frame are automatically dismounted (orphan cleanup).</p>
 
 
   
@@ -171,17 +171,17 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 
   <h2 class="section-header"><a id="concurrency"></a>Concurrency</h2>
 
-<p>Components don&#39;t need locks. All field access happens on the UI goroutine. Background goroutines push mutations via <code>Dispatch</code>:</p><pre style="color:#c9d1d9;background-color:#0d1117"><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">w</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Widget</span>) <span style="color:#d2a8ff">OnMount</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) {
-    <span style="color:#ff7b72;font-weight:bold">go</span> <span style="color:#ff7b72;font-weight:bold">func</span>() {
-        <span style="color:#ffa657">data</span>, <span style="color:#ffa657">err</span> <span style="color:#ff7b72">:=</span> <span style="color:#d2a8ff">fetchData</span>(<span style="color:#ffa657">ctx</span>)  <span style="color:#6e7681;font-style:italic">// ctx.Done() fires on dismount
-</span><span style="color:#6e7681;font-style:italic"></span>        <span style="color:#ff7b72;font-weight:bold">if</span> <span style="color:#ffa657">err</span> <span style="color:#ff7b72">!=</span> <span style="color:#ff7b72;font-weight:bold">nil</span> { <span style="color:#ff7b72;font-weight:bold">return</span> }
-        <span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">Dispatch</span>(<span style="color:#ff7b72;font-weight:bold">func</span>() {
-            <span style="color:#ffa657">w</span>.<span style="color:#ffa657">data</span> = <span style="color:#ffa657">data</span>
-            <span style="color:#ffa657">w</span>.<span style="color:#d2a8ff">Update</span>()
-        })
-    }()
-}
-</pre>
+<p>Components don&#39;t need locks. All field access happens on the UI goroutine. Background goroutines push mutations via <code>Dispatch</code>:</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">w</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Widget</span>) <span style="color:#d2a8ff">OnMount</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">go</span> <span style="color:#ff7b72;font-weight:bold">func</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">data</span>, <span style="color:#ffa657">err</span> <span style="color:#ff7b72">:=</span> <span style="color:#d2a8ff">fetchData</span>(<span style="color:#ffa657">ctx</span>)  <span style="color:#6e7681;font-style:italic">// ctx.Done() fires on dismount</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ff7b72;font-weight:bold">if</span> <span style="color:#ffa657">err</span> <span style="color:#ff7b72">!=</span> <span style="color:#ff7b72;font-weight:bold">nil</span> { <span style="color:#ff7b72;font-weight:bold">return</span> }
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">Dispatch</span>(<span style="color:#ff7b72;font-weight:bold">func</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#ffa657">w</span>.<span style="color:#ffa657">data</span> = <span style="color:#ffa657">data</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#ffa657">w</span>.<span style="color:#d2a8ff">Update</span>()
+</span></span><span style="display:flex;"><span>        })
+</span></span><span style="display:flex;"><span>    }()
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre>
 
 
   
@@ -189,23 +189,23 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 
   <h2 class="section-header"><a id="overlays"></a>Overlays</h2>
 
-<p>Overlays composite a component on top of the base content at column-level precision. Positioning can be viewport-anchored, content-relative, or cursor-relative.</p><pre style="color:#c9d1d9;background-color:#0d1117"><span style="color:#6e7681;font-style:italic">// Centered modal
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ffa657">handle</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">ShowOverlay</span>(<span style="color:#ffa657">dialog</span>, <span style="color:#ff7b72">&amp;</span><span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">OverlayOptions</span>{
-    <span style="color:#ffa657">Width</span>:  <span style="color:#ffa657">tuist</span>.<span style="color:#d2a8ff">SizePct</span>(<span style="color:#79c0ff">50</span>),
-    <span style="color:#ffa657">Anchor</span>: <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">AnchorCenter</span>,
-})
-
-<span style="color:#6e7681;font-style:italic">// Completion menu that follows the cursor, flips above/below as needed
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ffa657">handle</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">ShowOverlay</span>(<span style="color:#ffa657">menu</span>, <span style="color:#ff7b72">&amp;</span><span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">OverlayOptions</span>{
-    <span style="color:#ffa657">CursorRelative</span>: <span style="color:#ff7b72;font-weight:bold">true</span>,
-    <span style="color:#ffa657">PreferAbove</span>:    <span style="color:#ff7b72;font-weight:bold">true</span>,
-    <span style="color:#ffa657">CursorGroup</span>:    <span style="color:#ffa657">group</span>, <span style="color:#6e7681;font-style:italic">// linked overlays share the above/below decision
-</span><span style="color:#6e7681;font-style:italic"></span>})
-
-<span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">Hide</span>()              <span style="color:#6e7681;font-style:italic">// remove permanently
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">SetHidden</span>(<span style="color:#ff7b72;font-weight:bold">true</span>)     <span style="color:#6e7681;font-style:italic">// toggle visibility
-</span><span style="color:#6e7681;font-style:italic"></span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">SetOptions</span>(<span style="color:#ffa657">newOpts</span>) <span style="color:#6e7681;font-style:italic">// reposition without recreating
-</span></pre><p>Focus is not changed automatically — you call <code>SetFocus</code> to direct input to the overlay component.</p>
+<p>Overlays composite a component on top of the base content at column-level precision. Positioning can be viewport-anchored, content-relative, or cursor-relative.</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Centered modal</span>
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">ShowOverlay</span>(<span style="color:#ffa657">dialog</span>, <span style="color:#ff7b72">&amp;</span><span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">OverlayOptions</span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">Width</span>:  <span style="color:#ffa657">tuist</span>.<span style="color:#d2a8ff">SizePct</span>(<span style="color:#79c0ff">50</span>),
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">Anchor</span>: <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">AnchorCenter</span>,
+</span></span><span style="display:flex;"><span>})
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// Completion menu that follows the cursor, flips above/below as needed</span>
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">ShowOverlay</span>(<span style="color:#ffa657">menu</span>, <span style="color:#ff7b72">&amp;</span><span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">OverlayOptions</span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">CursorRelative</span>: <span style="color:#ff7b72;font-weight:bold">true</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">PreferAbove</span>:    <span style="color:#ff7b72;font-weight:bold">true</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#ffa657">CursorGroup</span>:    <span style="color:#ffa657">group</span>, <span style="color:#6e7681;font-style:italic">// linked overlays share the above/below decision</span>
+</span></span><span style="display:flex;"><span>})
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">Hide</span>()              <span style="color:#6e7681;font-style:italic">// remove permanently</span>
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">SetHidden</span>(<span style="color:#ff7b72;font-weight:bold">true</span>)     <span style="color:#6e7681;font-style:italic">// toggle visibility</span>
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">SetOptions</span>(<span style="color:#ffa657">newOpts</span>) <span style="color:#6e7681;font-style:italic">// reposition without recreating</span>
+</span></span></code></pre><p>Focus is not changed automatically — you call <code>SetFocus</code> to direct input to the overlay component.</p>
 
 
   
@@ -233,19 +233,19 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 
   <h2 class="section-header"><a id="mouse"></a>Mouse</h2>
 
-<p>Implement <code>MouseEnabled</code> on a component and the framework handles the rest. When a <code>MouseEnabled</code> component is mounted, terminal mouse reporting is enabled (ref-counted). Zone markers (zero-width CSI sequences) are injected around the component&#39;s rendered output; after each frame, the markers are scanned to build a hit map. Mouse events are dispatched to the deepest zone under the cursor with component-relative coordinates.</p><pre style="color:#c9d1d9;background-color:#0d1117"><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Cell</span>) <span style="color:#d2a8ff">HandleMouse</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">MouseEvent</span>) <span style="color:#79c0ff">bool</span> {
-    <span style="color:#ff7b72;font-weight:bold">switch</span> <span style="color:#ffa657">ev</span>.<span style="color:#ffa657">MouseEvent</span>.(<span style="color:#ff7b72;font-weight:bold">type</span>) {
-    <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">MouseClickEvent</span>:
-        <span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">SetFocus</span>(<span style="color:#ffa657">c</span>)
-        <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">true</span>
-    <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">MouseMotionEvent</span>:
-        <span style="color:#ffa657">c</span>.<span style="color:#ffa657">cursorRow</span>, <span style="color:#ffa657">c</span>.<span style="color:#ffa657">cursorCol</span> = <span style="color:#ffa657">ev</span>.<span style="color:#ffa657">Row</span>, <span style="color:#ffa657">ev</span>.<span style="color:#ffa657">Col</span>  <span style="color:#6e7681;font-style:italic">// component-relative
-</span><span style="color:#6e7681;font-style:italic"></span>        <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">Update</span>()
-        <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">true</span>
-    }
-    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">false</span>
-}
-</pre><p>Inline children rendered via <code>RenderChildInline</code> also get zone markers — you can have clickable spans within a single line.</p>
+<p>Implement <code>MouseEnabled</code> on a component and the framework handles the rest. When a <code>MouseEnabled</code> component is mounted, terminal mouse reporting is enabled (ref-counted). Zone markers (zero-width CSI sequences) are injected around the component&#39;s rendered output; after each frame, the markers are scanned to build a hit map. Mouse events are dispatched to the deepest zone under the cursor with component-relative coordinates.</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#ff7b72;font-weight:bold">func</span> (<span style="color:#ffa657">c</span> <span style="color:#ff7b72">*</span><span style="color:#ffa657">Cell</span>) <span style="color:#d2a8ff">HandleMouse</span>(<span style="color:#ffa657">ctx</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">Context</span>, <span style="color:#ffa657">ev</span> <span style="color:#ffa657">tuist</span>.<span style="color:#ffa657">MouseEvent</span>) <span style="color:#79c0ff">bool</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">switch</span> <span style="color:#ffa657">ev</span>.<span style="color:#ffa657">MouseEvent</span>.(<span style="color:#ff7b72;font-weight:bold">type</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">MouseClickEvent</span>:
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">ctx</span>.<span style="color:#d2a8ff">SetFocus</span>(<span style="color:#ffa657">c</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">true</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">case</span> <span style="color:#ffa657">uv</span>.<span style="color:#ffa657">MouseMotionEvent</span>:
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">c</span>.<span style="color:#ffa657">cursorRow</span>, <span style="color:#ffa657">c</span>.<span style="color:#ffa657">cursorCol</span> = <span style="color:#ffa657">ev</span>.<span style="color:#ffa657">Row</span>, <span style="color:#ffa657">ev</span>.<span style="color:#ffa657">Col</span>  <span style="color:#6e7681;font-style:italic">// component-relative</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ffa657">c</span>.<span style="color:#d2a8ff">Update</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">true</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">false</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre><p>Inline children rendered via <code>RenderChildInline</code> also get zone markers — you can have clickable spans within a single line.</p>
 
 
   
@@ -353,14 +353,14 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 
   <h2 class="section-header"><a id="demos"></a>Demos</h2>
 
-<pre style="color:#c9d1d9;background-color:#0d1117"><span style="color:#6e7681;font-style:italic"># interactive selector</span>
-$ go run github.com/vito/tuist/demos@latest
-
-<span style="color:#6e7681;font-style:italic"># or run one directly</span>
-$ go run github.com/vito/tuist/demos@latest keygen   <span style="color:#6e7681;font-style:italic"># mandelbrot fractal, ~165fps, inline editors</span>
-$ go run github.com/vito/tuist/demos@latest grid     <span style="color:#6e7681;font-style:italic"># mouse hover/click grid, keyboard nav</span>
-$ go run github.com/vito/tuist/demos@latest logs     <span style="color:#6e7681;font-style:italic"># scrollback stress test, overlays, spinner</span>
-</pre>
+<pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic"># interactive selector</span>
+</span></span><span style="display:flex;"><span>$ go run github.com/vito/tuist/demos@latest
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic"># or run one directly</span>
+</span></span><span style="display:flex;"><span>$ go run github.com/vito/tuist/demos@latest keygen   <span style="color:#6e7681;font-style:italic"># mandelbrot fractal, ~165fps, inline editors</span>
+</span></span><span style="display:flex;"><span>$ go run github.com/vito/tuist/demos@latest grid     <span style="color:#6e7681;font-style:italic"># mouse hover/click grid, keyboard nav</span>
+</span></span><span style="display:flex;"><span>$ go run github.com/vito/tuist/demos@latest logs     <span style="color:#6e7681;font-style:italic"># scrollback stress test, overlays, spinner</span>
+</span></span></code></pre>
 
 
   
@@ -370,13 +370,13 @@ $ go run github.com/vito/tuist/demos@latest logs     <span style="color:#6e7681;
 
 <ul>
 
-  <li><p><a href="https://go-app.dev">Go-app</a> — component system, lifecycle hooks, UI goroutine model</p></li>
+  <li><a href="https://go-app.dev">Go-app</a> — component system, lifecycle hooks, UI goroutine model</li>
 
-  <li><p><a href="https://github.com/badlogic/pi-mono/tree/main/packages/tui">pi-tui</a> — repaintable scrollback approach; tuist started as a conversion of this</p></li>
+  <li><a href="https://github.com/badlogic/pi-mono/tree/main/packages/tui">pi-tui</a> — repaintable scrollback approach; tuist started as a conversion of this</li>
 
-  <li><p><a href="https://github.com/lrstanley/bubblezone">BubbleZone</a> — mouse region markers trick</p></li>
+  <li><a href="https://github.com/lrstanley/bubblezone">BubbleZone</a> — mouse region markers trick</li>
 
-  <li><p><a href="https://github.com/charmbracelet/bubbletea">Bubbletea</a> — great TUI framework, different model. tuist uses <a href="https://github.com/charmbracelet/lipgloss">Lipgloss</a> and <a href="https://github.com/charmbracelet/ultraviolet">Ultraviolet</a> from its ecosystem.</p></li>
+  <li><a href="https://github.com/charmbracelet/bubbletea">Bubbletea</a> — great TUI framework, different model. tuist uses <a href="https://github.com/charmbracelet/lipgloss">Lipgloss</a> and <a href="https://github.com/charmbracelet/ultraviolet">Ultraviolet</a> from its ecosystem.</li>
 
 </ul>
 

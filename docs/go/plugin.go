@@ -6,8 +6,8 @@
 package tuistdocs
 
 import (
-	"github.com/alecthomas/chroma"
-	"github.com/alecthomas/chroma/styles"
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/vito/booklit"
 	chromap "github.com/vito/booklit/chroma"
 )
