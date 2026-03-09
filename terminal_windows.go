@@ -11,10 +11,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// ProcessTerminal is a Terminal backed by os.Stdin / os.Stdout on Windows.
+// StdTerminal is a Terminal backed by the standard file descriptors
 // It uses the Windows Console API to enable virtual terminal processing
 // and raw input mode.
-type ProcessTerminal struct {
+type StdTerminal struct {
 	origInMode  uint32
 	origOutMode uint32
 	onInput     func([]byte)
@@ -35,11 +35,11 @@ type ProcessTerminal struct {
 	rows   int
 }
 
-func NewProcessTerminal() *ProcessTerminal {
-	return &ProcessTerminal{}
+func NewStdTerminal() *StdTerminal {
+	return &StdTerminal{}
 }
 
-func (t *ProcessTerminal) Start(onInput func([]byte), onResize func()) error {
+func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	t.onInput = onInput
 	t.onResize = onResize
 	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
@@ -113,7 +113,7 @@ func (t *ProcessTerminal) Start(onInput func([]byte), onResize func()) error {
 
 // readStdin reads from os.Stdin forever and writes to the current inputSink.
 // This goroutine lives for the process lifetime.
-func (t *ProcessTerminal) readStdin() {
+func (t *StdTerminal) readStdin() {
 	buf := make([]byte, 4096)
 	for {
 		n, err := os.Stdin.Read(buf)
@@ -137,13 +137,13 @@ func (t *ProcessTerminal) readStdin() {
 // the normal input handler. Pass nil to discard input (e.g. when the
 // terminal is stopped). Call with the onInput wrapper to resume normal
 // input handling (done automatically by Start).
-func (t *ProcessTerminal) SetInputPassthrough(w io.Writer) {
+func (t *StdTerminal) SetInputPassthrough(w io.Writer) {
 	t.inputMu.Lock()
 	t.inputSink = w
 	t.inputMu.Unlock()
 }
 
-func (t *ProcessTerminal) Stop() {
+func (t *StdTerminal) Stop() {
 	// Disable Kitty keyboard protocol.
 	t.WriteString(ansi.KittyKeyboard(0, 1))
 
@@ -166,15 +166,15 @@ func (t *ProcessTerminal) Stop() {
 	_ = windows.SetConsoleMode(outHandle, t.origOutMode)
 }
 
-func (t *ProcessTerminal) Write(p []byte) {
+func (t *StdTerminal) Write(p []byte) {
 	_, _ = os.Stdout.Write(p)
 }
 
-func (t *ProcessTerminal) WriteString(s string) {
+func (t *StdTerminal) WriteString(s string) {
 	_, _ = os.Stdout.WriteString(s)
 }
 
-func (t *ProcessTerminal) Columns() int {
+func (t *StdTerminal) Columns() int {
 	t.sizeMu.RLock()
 	c := t.cols
 	t.sizeMu.RUnlock()
@@ -184,7 +184,7 @@ func (t *ProcessTerminal) Columns() int {
 	return c
 }
 
-func (t *ProcessTerminal) Rows() int {
+func (t *StdTerminal) Rows() int {
 	t.sizeMu.RLock()
 	r := t.rows
 	t.sizeMu.RUnlock()
@@ -194,7 +194,7 @@ func (t *ProcessTerminal) Rows() int {
 	return r
 }
 
-func (t *ProcessTerminal) refreshSize() {
+func (t *StdTerminal) refreshSize() {
 	var info windows.ConsoleScreenBufferInfo
 	outHandle := windows.Handle(os.Stdout.Fd())
 	err := windows.GetConsoleScreenBufferInfo(outHandle, &info)
@@ -213,10 +213,10 @@ func (t *ProcessTerminal) refreshSize() {
 	t.sizeMu.Unlock()
 }
 
-func (t *ProcessTerminal) HideCursor() {
+func (t *StdTerminal) HideCursor() {
 	t.WriteString("\x1b[?25l")
 }
 
-func (t *ProcessTerminal) ShowCursor() {
+func (t *StdTerminal) ShowCursor() {
 	t.WriteString("\x1b[?25h")
 }

@@ -99,7 +99,7 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 }
 
 <span class="cmt">// startup</span>
-term := <span class="pkg">tuist</span>.<span class="fn">NewProcessTerminal</span>()
+term := <span class="pkg">tuist</span>.<span class="fn">NewStdTerminal</span>()
 tui  := <span class="pkg">tuist</span>.<span class="fn">New</span>(term)
 tui.<span class="fn">Start</span>()
 tui.<span class="fn">Dispatch</span>(<span class="kw">func</span>() {

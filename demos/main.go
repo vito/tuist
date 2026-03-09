@@ -22,10 +22,10 @@ import (
 	"github.com/vito/tuist"
 )
 
-// sharedTerm is the single ProcessTerminal for the process. It is created
+// sharedTerm is the single StdTerminal for the process. It is created
 // once and reused across the selector and whichever demo is launched so
 // that only one goroutine ever reads stdin.
-var sharedTerm = tuist.NewProcessTerminal()
+var sharedTerm = tuist.NewStdTerminal()
 
 type demoEntry struct {
 	name string

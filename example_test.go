@@ -55,7 +55,7 @@ var _ tuist.Focusable = (*Counter)(nil)
 func (c *Counter) SetFocused(_ tuist.Context, focused bool) { c.focused = focused }
 
 func Example() {
-	term := tuist.NewProcessTerminal()
+	term := tuist.NewStdTerminal()
 	tui := tuist.New(term)
 
 	if err := tui.Start(); err != nil {

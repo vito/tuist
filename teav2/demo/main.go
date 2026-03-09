@@ -31,7 +31,7 @@ func main() {
 }
 
 func run() error {
-	term := tuist.NewProcessTerminal()
+	term := tuist.NewStdTerminal()
 	tui := tuist.New(term)
 
 	// Enable render debug logging.
