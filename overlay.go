@@ -116,10 +116,27 @@ type OverlayHandle struct {
 	entry *overlayEntry
 }
 
-// Hide permanently removes the overlay.
+// Remove permanently removes the overlay from the overlay stack.
 // Must be called on the UI goroutine (from an event handler or Dispatch).
-func (h *OverlayHandle) Hide() {
+func (h *OverlayHandle) Remove() {
 	h.tui.removeOverlay(h.entry)
+}
+
+// SetHidden temporarily hides or shows the overlay. Focus is not changed;
+// the caller should manage focus explicitly via [TUI.SetFocus].
+// Must be called on the UI goroutine (from an event handler or Dispatch).
+func (h *OverlayHandle) SetHidden(hidden bool) {
+	if h.entry.hidden == hidden {
+		return
+	}
+	h.entry.hidden = hidden
+	h.tui.RequestRender(false)
+}
+
+// IsHidden reports whether the overlay is temporarily hidden.
+// Must be called on the UI goroutine (from an event handler or Dispatch).
+func (h *OverlayHandle) IsHidden() bool {
+	return h.entry.hidden
 }
 
 // SetOptions replaces the overlay's positioning/sizing options without

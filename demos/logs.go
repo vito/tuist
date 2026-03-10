@@ -162,7 +162,7 @@ func runLogs(initialLines int) error {
 
 		case key.Text == "o":
 			if overlayHandle != nil {
-				overlayHandle.Hide()
+				overlayHandle.Remove()
 				overlayHandle = nil
 				statusBar.set("\x1b[7m overlay hidden \x1b[0m")
 			} else {

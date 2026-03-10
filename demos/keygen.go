@@ -398,7 +398,7 @@ func (f *fractalView) notify(ctx tuist.Context, msg string) {
 }
 
 func (f *fractalView) removeNotification(n *activeNotification) {
-	n.handle.Hide()
+	n.handle.Remove()
 	for i, existing := range f.notifications {
 		if existing == n {
 			f.notifications = append(f.notifications[:i], f.notifications[i+1:]...)

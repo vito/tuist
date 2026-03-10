@@ -232,7 +232,7 @@ func (m *CompletionMenu) hide() {
 	m.items = nil
 	m.index = 0
 	if m.handle != nil {
-		m.handle.Hide()
+		m.handle.Remove()
 		m.handle = nil
 		m.overlay = nil
 	}
@@ -241,7 +241,7 @@ func (m *CompletionMenu) hide() {
 
 func (m *CompletionMenu) hideDetail() {
 	if m.detailH != nil {
-		m.detailH.Hide()
+		m.detailH.Remove()
 		m.detailH = nil
 		m.detailComp = nil
 	}
