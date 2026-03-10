@@ -123,7 +123,6 @@ type CompletionMenu struct {
 	visible     bool
 	items       []Completion   // current completion list
 	replaceFrom int            // byte offset where the token starts
-	matches     []int          // indices into items that match filter
 	index       int            // selected index within matches
 	overlay     *completionMenuOverlay
 	handle      *OverlayHandle
@@ -449,9 +448,7 @@ func defaultDetailRenderer(c Completion, _ int, titleStyle, dimStyle lipgloss.St
 	}
 	if c.Documentation != "" {
 		lines = append(lines, "")
-		for _, l := range strings.Split(c.Documentation, "\n") {
-			lines = append(lines, l)
-		}
+		lines = append(lines, strings.Split(c.Documentation, "\n")...)
 	}
 	return lines
 }

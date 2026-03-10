@@ -556,7 +556,7 @@ func (t *TUI) stop(clear bool) {
 
 	// Close environment-opened debug log file.
 	if t.envDebugFile != nil {
-		t.envDebugFile.Close()
+		_ = t.envDebugFile.Close()
 		t.envDebugFile = nil
 		t.debugWriter = nil
 	}
@@ -578,7 +578,7 @@ func (t *TUI) Exec(fn func(in io.Reader, out io.Writer, errOut io.Writer) error)
 
 	err := fn(pr, os.Stdout, os.Stderr)
 
-	pw.Close()
+	_ = pw.Close()
 	t.terminal.SetInputPassthrough(nil)
 	return errors.Join(err, t.Start())
 }
@@ -1153,7 +1153,7 @@ func (t *TUI) renderFrame(width, height int, stats *RenderStats) ([]string, *Cur
 	}
 	var compStats []ComponentStat
 	if t.debugWriter != nil {
-		t.Container.componentStats = &compStats
+		t.componentStats = &compStats
 	}
 	baseResult := renderComponent(&t.Container, ctx)
 	cursorPos := baseResult.Cursor

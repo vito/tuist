@@ -35,18 +35,18 @@ func New(cols, rows int) *Terminal {
 func (m *Terminal) Start(onInput func([]byte), onResize func()) error { return nil }
 func (m *Terminal) Stop()                                             {}
 func (m *Terminal) SetInputPassthrough(io.Writer)                     {}
-func (m *Terminal) Write(p []byte)                                    { m.VT.Write(p) }
-func (m *Terminal) WriteString(s string)                              { m.VT.Write([]byte(s)) }
+func (m *Terminal) Write(p []byte)                                    { _, _ = m.VT.Write(p) }
+func (m *Terminal) WriteString(s string)                              { _, _ = m.VT.Write([]byte(s)) }
 func (m *Terminal) Columns() int                                      { return m.VT.Width }
 func (m *Terminal) Rows() int                                         { return m.VT.Height }
-func (m *Terminal) HideCursor()                                       { m.VT.Write([]byte("\x1b[?25l")) }
-func (m *Terminal) ShowCursor()                                       { m.VT.Write([]byte("\x1b[?25h")) }
+func (m *Terminal) HideCursor()                                       { _, _ = m.VT.Write([]byte("\x1b[?25l")) }
+func (m *Terminal) ShowCursor()                                       { _, _ = m.VT.Write([]byte("\x1b[?25h")) }
 
 // Render returns the virtual terminal's content as a string including
 // ANSI escape sequences for colors and formatting, capturing the full
 // styled appearance as a real terminal would display it.
 func (m *Terminal) Render() string {
 	buf := new(bytes.Buffer)
-	m.VT.Render(buf)
+	_ = m.VT.Render(buf)
 	return buf.String()
 }
