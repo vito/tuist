@@ -208,7 +208,7 @@ type TUI struct {
 
 	// Positional mouse dispatch: zones rebuilt after each render by scanning markers.
 	mouseZones      []mouseZone
-	markerIDs       map[int64]Component  // reused marker ID → component lookup
+	markerIDs       map[int64]Component  // marker ID → component, maintained on mount/dismount
 	trackedZones    map[int64]*mouseZone // reused open-marker tracker
 	ansiParser      *ansi.Parser         // reused ANSI parser for zone scanning
 	lastMouseTarget Component            // for hover enter/leave tracking
@@ -355,27 +355,39 @@ func (t *TUI) SetShowHardwareCursor(enabled bool) {
 	}
 }
 
-// EnableMouse increments the mouse reference count and, if transitioning
-// from 0 to 1, enables terminal mouse reporting. Must be called on the
-// UI goroutine. Components normally don't call this directly — the
-// framework calls it automatically when a MouseEnabled component is mounted.
-func (t *TUI) EnableMouse() {
+// enableMouse registers a MouseEnabled component, incrementing the mouse
+// reference count and enabling terminal mouse reporting if this is the
+// first such component. The component's marker ID is eagerly allocated
+// and added to the marker map so that scanMouseZones can skip the
+// per-frame tree walk.
+func (t *TUI) enableMouse(comp Component) {
 	t.mouseRefCount++
 	if t.mouseRefCount == 1 {
 		t.terminal.WriteString(escMouseAllMotionEnable)
 		t.terminal.WriteString(escMouseSGREnable)
 	}
+	// Eagerly allocate marker ID and register in the map.
+	markerOf(comp) // ensures markerID is set
+	mid := comp.compo().markerID.Load()
+	if t.markerIDs == nil {
+		t.markerIDs = make(map[int64]Component)
+	}
+	t.markerIDs[mid] = comp
 }
 
-// DisableMouse decrements the mouse reference count and, if transitioning
-// to 0, disables terminal mouse reporting. Must be called on the UI
-// goroutine.
-func (t *TUI) DisableMouse() {
+// disableMouse unregisters a MouseEnabled component, decrementing the
+// mouse reference count and disabling terminal mouse reporting when the
+// last such component is dismounted.
+func (t *TUI) disableMouse(comp Component) {
 	t.mouseRefCount--
 	if t.mouseRefCount <= 0 {
 		t.mouseRefCount = 0
 		t.terminal.WriteString(escMouseSGRDisable)
 		t.terminal.WriteString(escMouseAllMotionDisable)
+	}
+	// Remove from marker map.
+	if mid := comp.compo().markerID.Load(); mid != 0 {
+		delete(t.markerIDs, mid)
 	}
 }
 
@@ -787,8 +799,6 @@ func (t *TUI) scanMouseZones(lines []string) []string {
 		return lines
 	}
 
-	// Reuse marker ID → Component lookup.
-	t.rebuildMarkerMap()
 	markerMap := t.markerIDs
 
 	// Fast path: no mouse-enabled components have markers, so there is
@@ -867,26 +877,6 @@ func (t *TUI) scanMouseZones(lines []string) []string {
 	return stripped
 }
 
-// rebuildMarkerMap populates t.markerIDs with the current marker ID →
-// Component mapping. Reuses the map across frames.
-func (t *TUI) rebuildMarkerMap() {
-	if t.markerIDs == nil {
-		t.markerIDs = make(map[int64]Component)
-	} else {
-		clear(t.markerIDs)
-	}
-	t.collectMarkers(&t.Container, t.markerIDs)
-}
-
-func (t *TUI) collectMarkers(comp Component, m map[int64]Component) {
-	cp := comp.compo()
-	if id := cp.markerID.Load(); id != 0 {
-		m[id] = comp
-	}
-	for _, child := range cp.renderChildren {
-		t.collectMarkers(child, m)
-	}
-}
 
 // dispatchMousePositional finds the deepest (last-scanned) MouseEnabled
 // zone containing the mouse position and dispatches the event with

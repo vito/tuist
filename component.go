@@ -216,10 +216,9 @@ type Compo struct {
 
 	// Children rendered via RenderChild. Populated during Render,
 	// cleared at the start of each cache-miss re-render. Used by
-	// collectMarkers to discover zone markers for positional mouse
-	// dispatch, and by dismountTree for lifecycle cleanup. Children
-	// are auto-mounted on first encounter and dismounted when they
-	// no longer appear after a re-render (orphan cleanup).
+	// dismountTree for lifecycle cleanup. Children are auto-mounted
+	// on first encounter and dismounted when they no longer appear
+	// after a re-render (orphan cleanup).
 	renderChildren []Component
 
 	// componentStats collects per-component render metrics when debug
@@ -299,7 +298,7 @@ func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
 				cp.mountCtx, cp.mountCancel = context.WithCancel(c.mountCtx)
 			}
 			if _, ok := child.(MouseEnabled); ok {
-				c.tui.EnableMouse()
+				c.tui.enableMouse(child)
 			}
 			if m, ok := child.(Mounter); ok {
 				mctx := Context{
@@ -573,7 +572,7 @@ func dismountTree(comp Component) {
 
 	// Decrement mouse ref count before clearing tui pointer.
 	if _, ok := comp.(MouseEnabled); ok && cp.tui != nil {
-		cp.tui.DisableMouse()
+		cp.tui.disableMouse(comp)
 	}
 
 	cp.tui = nil
