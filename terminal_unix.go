@@ -49,7 +49,7 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
 
 	// Save and set raw mode.
-	fd := int(os.Stdin.Fd())
+	fd := int(os.Stdin.Fd()) // TODO: find TTY on any of stdio, to handle pipes
 	orig, err := unix.IoctlGetTermios(fd, ioctlReadTermios)
 	if err != nil {
 		return fmt.Errorf("get termios: %w", err)

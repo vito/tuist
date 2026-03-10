@@ -1,65 +1,66 @@
-\use-plugin{chroma}
 \use-plugin{tuist}
 
 \styled{tuist-home}
-\single-page
 
 # tuist {#index}
 
-A component-based TUI framework for Go with cached rendering, line-level
-diffing, and a single UI goroutine.
-
-\header-links{
-  [GitHub](https://github.com/vito/tuist)
-}{
-  [pkg.go.dev](https://pkg.go.dev/github.com/vito/tuist)
-}
-
 \install{go get github.com/vito/tuist}
 
-## Minimal example
+\table-of-contents
+\include-section{../../README.md}
 
-Embed `Compo`, implement `Render`, call `Update()` when state changes.
+## minimal example
 
 ```go
 type Counter struct {
+    // All components embed tea.Compo.
     tuist.Compo
+    // Components store state however they like (public or private).
     Count int
 }
 
+// All components implement Render.
 func (c *Counter) Render(ctx tuist.Context) tuist.RenderResult {
     return tuist.RenderResult{
         Lines: []string{fmt.Sprintf("Count: %d", c.Count)},
     }
 }
 
+var _ tuist.Interactive = (*Counter)(nil)
+
+// Interactive components handle keypresses. See [interfaces].
 func (c *Counter) HandleKeyPress(_ tuist.Context, ev uv.KeyPressEvent) bool {
     c.Count++
     c.Update()
     return true
 }
 
-// startup
-term := tuist.NewStdTerminal()
-tui  := tuist.New(term)
-tui.Start()
-tui.Dispatch(func() {
-    counter := &Counter{}
-    tui.AddChild(counter)
-    tui.SetFocus(counter)
-})
+func main() {
+    tui := tuist.New(tuist.NewStdTerminal())
+    // Start the rendering + dispatch loop
+    tui.Start()
+    // Queue some updates for the UI goroutine.
+    tui.Dispatch(func() {
+        counter := &Counter{}
+        tui.AddChild(counter)
+        tui.SetFocus(counter)
+    })
+}
 ```
 
-## How it works
+## how it works
 
-Components form a tree. Each embeds `Compo` which tracks a generation
-counter. `Update()` bumps the counter and propagates upward. On each
-frame, the framework skips any subtree whose generation hasn't changed —
-cached result returned in O(1).
+Embedding `Compo` provides bookkeeping for the component in the UI tree. Each
+component has a *generation*, a *parent*, and *children*.
 
-The rendered output (a `[]string`, one per line) is diffed against the
-previous frame. Only changed lines are written to the terminal, wrapped in
-synchronized output (DEC 2026) to avoid flicker.
+Calling `Update()` increments the generation and propagates upward. On each
+frame, Tuist only calls `Render()` for components whose generation is higher
+than last render.
+
+`Render()` returns rendered lines (`[]string`) and an optional cursor position.
+Tuist only renders lines that changed from the last frame. If the lines are
+offscreen, Tuist has to do a full repaint, but does so using synchronized output
+(DEC 2026) so it won't flicker.
 
 All component state lives on a single goroutine. The event loop drains input
 events and `Dispatch()` closures, coalesces them, then renders once:
@@ -80,7 +81,7 @@ func (t *TUI) runLoop() {
 }
 ```
 
-## Interfaces
+## interfaces
 
 Only `Render` is required. Everything else is opt-in:
 
@@ -112,7 +113,7 @@ type Hoverable  interface { SetHovered(ctx Context, bool) }
 type Pasteable  interface { HandlePaste(ctx Context, ev uv.PasteEvent) bool }
 ```
 
-## Composition
+## composition
 
 `RenderChild` is how you compose components. It wires up the parent
 pointer, handles mount/dismount lifecycle, and wraps `MouseEnabled`
@@ -147,7 +148,7 @@ func (c *Chrome) Render(ctx tuist.Context) tuist.RenderResult {
 Children rendered via `RenderChild` that are no longer rendered on a
 subsequent frame are automatically dismounted (orphan cleanup).
 
-## Concurrency
+## concurrency
 
 Components don't need locks. All field access happens on the UI goroutine.
 Background goroutines push mutations via `Dispatch`:
@@ -165,7 +166,7 @@ func (w *Widget) OnMount(ctx tuist.Context) {
 }
 ```
 
-## Overlays
+## overlays
 
 Overlays composite a component on top of the base content at column-level
 precision. Positioning can be viewport-anchored, content-relative, or
@@ -193,7 +194,7 @@ handle.SetOptions(newOpts) // reposition without recreating
 Focus is not changed automatically — you call `SetFocus` to direct
 input to the overlay component.
 
-## Built-in components
+## built-in components
 
 * `Container` — renders children sequentially (vertical stack).
   `AddChild`, `RemoveChild`, `Clear`.
@@ -201,7 +202,7 @@ input to the overlay component.
 * `Slot` — holds one replaceable child. `Set(child)` swaps it; old
   child is dismounted automatically.
 
-*  `TextInput` — single/multiline text editor with cursor, prompt,
+* `TextInput` — single/multiline text editor with cursor, prompt,
   word/subword movement, kill-line, ghost suggestions, paste support, and a
   `KeyInterceptor` hook.
 
@@ -212,7 +213,7 @@ input to the overlay component.
   Takes a `CompletionProvider`, manages overlay lifecycle, handles
   keyboard nav, and shows a detail panel. Cursor-group-aware.
 
-## Mouse
+## mouse support
 
 Implement `MouseEnabled` on a component and the framework handles the
 rest. When a `MouseEnabled` component is mounted, terminal mouse
@@ -238,22 +239,3 @@ func (c *Cell) HandleMouse(ctx tuist.Context, ev tuist.MouseEvent) bool {
 
 Inline children rendered via `RenderChildInline` also get zone
 markers — you can have clickable spans within a single line.
-
-## Demos
-
-```bash
-# interactive selector
-$ go run github.com/vito/tuist/demos@latest
-
-# or run one directly
-$ go run github.com/vito/tuist/demos@latest keygen   # mandelbrot fractal, ~165fps, inline editors
-$ go run github.com/vito/tuist/demos@latest grid     # mouse hover/click grid, keyboard nav
-$ go run github.com/vito/tuist/demos@latest logs     # scrollback stress test, overlays, spinner
-```
-
-## Inspiration
-
-* [Go-app](https://go-app.dev) — component system, lifecycle hooks, UI goroutine model
-* [pi-tui](https://github.com/badlogic/pi-mono/tree/main/packages/tui) — repaintable scrollback approach; tuist started as a conversion of this
-* [BubbleZone](https://github.com/lrstanley/bubblezone) — mouse region markers trick
-* [Bubbletea](https://github.com/charmbracelet/bubbletea) — great TUI framework, different model. tuist uses [Lipgloss](https://github.com/charmbracelet/lipgloss) and [Ultraviolet](https://github.com/charmbracelet/ultraviolet) from its ecosystem.

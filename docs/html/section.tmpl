@@ -1,4 +1,6 @@
-<h2 class="section-header"><a id="{{.PrimaryTag.Name}}"></a>{{.Title | render}}</h2>
+<h{{headerDepth .}} class="section-header"><a id="{{.PrimaryTag.Name}}"></a>
+  {{.Title | render -}}
+</h{{headerDepth .}}>
 
 {{.Body | render}}
 
