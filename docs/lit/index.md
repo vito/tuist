@@ -62,8 +62,9 @@ Tuist only renders lines that changed from the last frame. If the lines are
 offscreen, Tuist has to do a full repaint, but does so using synchronized output
 (DEC 2026) so it won't flicker.
 
-All component state lives on a single goroutine. The event loop drains input
-events and `Dispatch()` closures, coalesces them, then renders once:
+To avoid a sprawl of mutexes, Tuist provides `Dispatch()` for scheduling updates
+in the frame rendering loop, where they will be coalesced, followed by a single
+render:
 
 ```go
 func (t *TUI) runLoop() {
@@ -83,7 +84,7 @@ func (t *TUI) runLoop() {
 
 ## interfaces
 
-Only `Render` is required. Everything else is opt-in:
+Components only need to implement `Render`. Everything else is opt-in:
 
 ```go
 // Every component must embed Compo and implement Render.
@@ -115,10 +116,8 @@ type Pasteable  interface { HandlePaste(ctx Context, ev uv.PasteEvent) bool }
 
 ## composition
 
-`RenderChild` is how you compose components. It wires up the parent
-pointer, handles mount/dismount lifecycle, and wraps `MouseEnabled`
-children in zone markers for positional dispatch. Always use it instead of
-calling `child.Render()` directly.
+Compose components together by calling `RenderChild()` in the parent component's
+`Render()` function.
 
 ```go
 // Vertical stack — Container does this internally
@@ -145,13 +144,20 @@ func (c *Chrome) Render(ctx tuist.Context) tuist.RenderResult {
 }
 ```
 
-Children rendered via `RenderChild` that are no longer rendered on a
-subsequent frame are automatically dismounted (orphan cleanup).
+`RenderChild` handles all the bookkeeping:
+
+* Wires up parent/child relationships, so `Update()` propagates up the component
+  tree.
+* If the child component is `MouseEnabled`, its output is wrapped with "zone
+  markers" for detecting and dispatching mouse events.
+* When the child component is first mounted, `OnMount()` is called.
+* When the child component is no longer mounted, `OnDismount()` is called.
+
 
 ## concurrency
 
-Components don't need locks. All field access happens on the UI goroutine.
-Background goroutines push mutations via `Dispatch`:
+Use goroutines like you normally would, and use `Dispatch()` to queue component
+tree updates for the frame render loop:
 
 ```go
 func (w *Widget) OnMount(ctx tuist.Context) {
@@ -168,9 +174,9 @@ func (w *Widget) OnMount(ctx tuist.Context) {
 
 ## overlays
 
-Overlays composite a component on top of the base content at column-level
-precision. Positioning can be viewport-anchored, content-relative, or
-cursor-relative.
+Overlays allow components like floating menus and notification bubbles to render
+over the base content. They can be positioned relative to the viewport, the full
+content, or the cursor.
 
 ```go
 // Centered modal
@@ -191,36 +197,32 @@ handle.SetHidden(true)     // toggle visibility
 handle.SetOptions(newOpts) // reposition without recreating
 ```
 
-Focus is not changed automatically — you call `SetFocus` to direct
-input to the overlay component.
 
 ## built-in components
 
-* `Container` — renders children sequentially (vertical stack).
-  `AddChild`, `RemoveChild`, `Clear`.
+* `Container` — renders children sequentially in a vertical stack. This is the
+  starting point: `TUI` embeds it, and you call `AddChild`/`RemoveChild` to go
+  from there.
 
-* `Slot` — holds one replaceable child. `Set(child)` swaps it; old
-  child is dismounted automatically.
+* `Slot` — holds one replaceable child. `Set(child)` swaps it.
 
-* `TextInput` — single/multiline text editor with cursor, prompt,
-  word/subword movement, kill-line, ghost suggestions, paste support, and a
-  `KeyInterceptor` hook.
+* `Spinner` — animated spinner.
 
-* `Spinner` — animated braille spinner. Starts on mount, stops on
-  dismount. Configurable `Style` and `Label`.
+* `TextInput` — (supposed-to-be) full-featured editing prompt, with built-in
+  completion and ghost suggestions.
 
-* `CompletionMenu` — dropdown autocomplete wired to a `TextInput`.
-  Takes a `CompletionProvider`, manages overlay lifecycle, handles
-  keyboard nav, and shows a detail panel. Cursor-group-aware.
+* `CompletionMenu` — fancy dropdown autocomplete wired to a `TextInput`.
+
 
 ## mouse support
 
-Implement `MouseEnabled` on a component and the framework handles the
-rest. When a `MouseEnabled` component is mounted, terminal mouse
-reporting is enabled (ref-counted). Zone markers (zero-width CSI sequences)
-are injected around the component's rendered output; after each frame, the
-markers are scanned to build a hit map. Mouse events are dispatched to the
-deepest zone under the cursor with component-relative coordinates.
+Components implement `MouseEnabled` to handle mouse hover/click events. Mouse
+support is integrated into the rendering and event pipeline, automatically
+adding "zone markers" to a component's output and performing hit detection to
+route events to the right component.
+
+Tuist counts how many components implement `MouseEnabled` and emits the proper
+terminal sequences to enable/disable mouse support automatically.
 
 ```go
 func (c *Cell) HandleMouse(ctx tuist.Context, ev tuist.MouseEvent) bool {
@@ -236,6 +238,3 @@ func (c *Cell) HandleMouse(ctx tuist.Context, ev tuist.MouseEvent) bool {
     return false
 }
 ```
-
-Inline children rendered via `RenderChildInline` also get zone
-markers — you can have clickable spans within a single line.
