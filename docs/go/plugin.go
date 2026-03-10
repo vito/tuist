@@ -49,10 +49,10 @@ type Plugin struct {
 
 // Install renders a shell install command block.
 //
-//	\install{go get github.com/vito/tuist}
-func (p Plugin) Install(content booklit.Content) booklit.Content {
+//	\shell{go get github.com/vito/tuist}
+func (p Plugin) Shell(content booklit.Content) booklit.Content {
 	return booklit.Styled{
-		Style:   "install",
+		Style:   "shell",
 		Content: content,
 		Block:   true,
 	}
@@ -72,5 +72,3 @@ func (p Plugin) HeaderLinks(links ...booklit.Content) booklit.Content {
 		Block:   true,
 	}
 }
-
-

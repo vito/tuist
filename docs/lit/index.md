@@ -4,9 +4,19 @@
 
 # tuist {#index}
 
-\install{go get github.com/vito/tuist}
+A component-based TUI framework for Go with cached rendering, line-level
+diffing, and a single UI goroutine.
+
+\header-links{
+  [GitHub](https://github.com/vito/tuist)
+}{
+  [pkg.go.dev](https://pkg.go.dev/github.com/vito/tuist)
+}
+
+\shell{go get github.com/vito/tuist}
 
 \table-of-contents
+
 \include-section{../../README.md}
 
 ## minimal example
