@@ -309,9 +309,6 @@ func (t *TUI) drainDispatchQ() {
 	}
 }
 
-// Terminal returns the underlying terminal.
-func (t *TUI) Terminal() Terminal { return t.terminal }
-
 // HasKittyKeyboard reports whether the terminal confirmed support for the
 // Kitty keyboard protocol (disambiguate escape codes). This is determined
 // by the response to the RequestKittyKeyboard query sent during Start().
@@ -381,20 +378,6 @@ func (t *TUI) DisableMouse() {
 	}
 }
 
-// SetClearOnShrink controls whether empty rows are cleared when content
-// shrinks. When false (the default), stale rows remain until overwritten,
-// which reduces full redraws on slower terminals.
-func (t *TUI) SetClearOnShrink(enabled bool) {
-	t.Dispatch(func() {
-		t.clearOnShrink = enabled
-	})
-}
-
-// Focused returns the currently focused component, or nil.
-func (t *TUI) Focused() Component {
-	return t.focusedComponent
-}
-
 // SetFocus gives keyboard focus to the given component (or nil).
 // Must be called on the UI goroutine (from an event handler or Dispatch).
 func (t *TUI) SetFocus(comp Component) {
@@ -455,17 +438,6 @@ func (t *TUI) ShowOverlay(comp Component, opts *OverlayOptions) *OverlayHandle {
 	t.overlayStack = append(t.overlayStack, entry)
 	t.RequestRender(false)
 	return &OverlayHandle{tui: t, entry: entry}
-}
-
-// HasOverlay reports whether any overlay is currently visible.
-// Must be called on the UI goroutine (from an event handler or Dispatch).
-func (t *TUI) HasOverlay() bool {
-	for _, o := range t.overlayStack {
-		if !o.hidden {
-			return true
-		}
-	}
-	return false
 }
 
 // Dispatch schedules a function to run on the UI goroutine. Use this to

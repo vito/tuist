@@ -131,23 +131,6 @@ func (h *OverlayHandle) SetOptions(opts *OverlayOptions) {
 	h.tui.RequestRender(false)
 }
 
-// SetHidden temporarily hides or shows the overlay. Focus is not changed;
-// the caller should manage focus explicitly via [TUI.SetFocus].
-// Must be called on the UI goroutine (from an event handler or Dispatch).
-func (h *OverlayHandle) SetHidden(hidden bool) {
-	if h.entry.hidden == hidden {
-		return
-	}
-	h.entry.hidden = hidden
-	h.tui.RequestRender(false)
-}
-
-// IsHidden reports whether the overlay is temporarily hidden.
-// Must be called on the UI goroutine (from an event handler or Dispatch).
-func (h *OverlayHandle) IsHidden() bool {
-	return h.entry.hidden
-}
-
 type overlayEntry struct {
 	component Component
 	options   *OverlayOptions

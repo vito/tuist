@@ -2,7 +2,6 @@ package tuist
 
 import (
 	"context"
-	"io"
 	"reflect"
 	"slices"
 	"strconv"
@@ -95,23 +94,6 @@ func (ctx Context) HasKittyKeyboard() bool {
 	return ctx.tui.HasKittyKeyboard()
 }
 
-// HasOverlay reports whether any overlay is currently visible.
-func (ctx Context) HasOverlay() bool {
-	return ctx.tui.HasOverlay()
-}
-
-// EnableMouse increments the mouse reference count, enabling terminal mouse
-// reporting if it wasn't already enabled. Call DisableMouse to decrement.
-func (ctx Context) EnableMouse() {
-	ctx.tui.EnableMouse()
-}
-
-// DisableMouse decrements the mouse reference count, disabling terminal
-// mouse reporting when no components need it.
-func (ctx Context) DisableMouse() {
-	ctx.tui.DisableMouse()
-}
-
 // Dispatch schedules a function to run on the UI goroutine.
 //
 // Safe to call from any goroutine. This is the primary way for
@@ -120,12 +102,6 @@ func (ctx Context) DisableMouse() {
 // has the Context in closure scope, so the callback doesn't receive one.
 func (ctx Context) Dispatch(fn func()) {
 	ctx.tui.Dispatch(fn)
-}
-
-// SetDebugWriter enables render performance logging. Must be called on
-// the UI goroutine (from an event handler or Dispatch callback).
-func (ctx Context) SetDebugWriter(w io.Writer) {
-	ctx.tui.debugWriter = w
 }
 
 // ComponentStat captures render metrics for a single component within
