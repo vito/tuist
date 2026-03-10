@@ -1,0 +1,43 @@
+"""
+CI/CD functions for the Tuist project
+"""
+type Tuist {
+  let source: Directory! @defaultPath(path: "/") @ignorePatterns(patterns: [
+    ".dagger",
+    ".git",
+  ])
+
+  let base: Container! {
+    container
+      .from("golang:1.25-alpine")
+      .withMountedCache("/go/pkg/mod", cacheVolume("go-mod"))
+      .withMountedCache("/root/.cache/go-build", cacheVolume("go-build"))
+      .withDirectory("/app", source)
+      .withWorkdir("/app")
+  }
+
+  """
+  Run all Go tests in the project.
+  """
+  pub test: Void @check {
+    base
+      .withExec(["go", "test", "-v", "./..."])
+      .sync
+
+    null
+  }
+
+  """
+  Run golangci-lint against all Go code.
+  """
+  pub lint: Void @check {
+    container
+      .from("golangci/golangci-lint:latest")
+      .withDirectory("/app", source)
+      .withWorkdir("/app")
+      .withExec(["golangci-lint", "run", "./..."])
+      .sync
+
+    null
+  }
+}
