@@ -780,6 +780,13 @@ type mouseZone struct {
 func (t *TUI) scanMouseZones(lines []string) []string {
 	t.mouseZones = t.mouseZones[:0]
 
+	// Fast path: no MouseEnabled components are mounted, so no markers
+	// were emitted and there is nothing to scan or strip. This avoids
+	// the rebuildMarkerMap tree walk entirely.
+	if t.mouseRefCount == 0 {
+		return lines
+	}
+
 	// Reuse marker ID → Component lookup.
 	t.rebuildMarkerMap()
 	markerMap := t.markerIDs
