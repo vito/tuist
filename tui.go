@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -783,6 +784,12 @@ func (t *TUI) scanMouseZones(lines []string) []string {
 	t.rebuildMarkerMap()
 	markerMap := t.markerIDs
 
+	// Fast path: no mouse-enabled components have markers, so there is
+	// nothing to scan or strip.
+	if len(markerMap) == 0 {
+		return lines
+	}
+
 	// Reuse open-marker tracker.
 	if t.trackedZones == nil {
 		t.trackedZones = make(map[int64]*mouseZone)
@@ -800,6 +807,13 @@ func (t *TUI) scanMouseZones(lines []string) []string {
 	stripped := make([]string, len(lines))
 
 	for row, line := range lines {
+		// Fast path: lines without ESC cannot contain zone markers (or
+		// any ANSI sequences), so pass them through without parsing.
+		if strings.IndexByte(line, '\x1b') < 0 {
+			stripped[row] = line
+			continue
+		}
+
 		clean := make([]byte, 0, len(line))
 		col := 0 // visible column counter
 		var state byte
