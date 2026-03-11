@@ -809,3 +809,480 @@ func TestGolden_OverlayAfterContentShrinks(t *testing.T) {
 
 	golden.Assert(t, term.Render(), "golden/overlay_after_content_shrinks.golden")
 }
+
+// ── overlay anchor positions ───────────────────────────────────────────────
+
+func overlayAnchorBackground(rows int) []string {
+	lines := make([]string, rows)
+	for i := range lines {
+		lines[i] = strings.Repeat(".", 40)
+	}
+	return lines
+}
+
+func TestGolden_OverlayAnchorTopLeft(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"TL1", "TL2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorTopLeft,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_anchor_top_left.golden")
+}
+
+func TestGolden_OverlayAnchorTopCenter(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"TC1", "TC2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorTopCenter,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_anchor_top_center.golden")
+}
+
+func TestGolden_OverlayAnchorBottomLeft(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"BL1", "BL2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorBottomLeft,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_anchor_bottom_left.golden")
+}
+
+func TestGolden_OverlayAnchorBottomRight(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"BR1", "BR2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorBottomRight,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_anchor_bottom_right.golden")
+}
+
+func TestGolden_OverlayAnchorBottomCenter(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"BC1", "BC2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorBottomCenter,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_anchor_bottom_center.golden")
+}
+
+func TestGolden_OverlayAnchorLeftCenter(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"LC1", "LC2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorLeftCenter,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_anchor_left_center.golden")
+}
+
+func TestGolden_OverlayAnchorRightCenter(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"RC1", "RC2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorRightCenter,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_anchor_right_center.golden")
+}
+
+// ── overlay margins ────────────────────────────────────────────────────────
+
+func TestGolden_OverlayMarginAllSides(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"M1", "M2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorTopLeft,
+		Margin: tuist.OverlayMargin{Top: 2, Right: 3, Bottom: 2, Left: 4},
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_margin_all_sides.golden")
+}
+
+func TestGolden_OverlayMarginBottomRight(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"BR1", "BR2"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorBottomRight,
+		Margin: tuist.OverlayMargin{Bottom: 2, Right: 3},
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_margin_bottom_right.golden")
+}
+
+// ── overlay sizing ─────────────────────────────────────────────────────────
+
+func TestGolden_OverlayWidthPct(t *testing.T) {
+	term := vt.New(40, 8)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(8)})
+	tui.ShowOverlay(&text{Lines: []string{"50% width overlay"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizePct(50),
+		Anchor: tuist.AnchorCenter,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_width_pct.golden")
+}
+
+func TestGolden_OverlayMaxHeightPct(t *testing.T) {
+	term := vt.New(40, 20)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(20)})
+
+	var lines []string
+	for i := range 15 {
+		lines = append(lines, fmt.Sprintf("item %02d", i))
+	}
+	tui.ShowOverlay(&text{Lines: lines}, &tuist.OverlayOptions{
+		Width:     tuist.SizeAbs(15),
+		MaxHeight: tuist.SizePct(50), // 50% of 20 = 10 lines
+		Anchor:    tuist.AnchorCenter,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_max_height_pct.golden")
+}
+
+func TestGolden_OverlayMinWidth(t *testing.T) {
+	term := vt.New(40, 6)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(6)})
+	// Width is 5 but MinWidth is 15, so 15 should win.
+	tui.ShowOverlay(&text{Lines: []string{"narrow?"}}, &tuist.OverlayOptions{
+		Width:    tuist.SizeAbs(5),
+		MinWidth: 15,
+		Anchor:   tuist.AnchorCenter,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_min_width.golden")
+}
+
+// ── explicit Row/Col positioning ───────────────────────────────────────────
+
+func TestGolden_OverlayExplicitRowCol(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"HERE"}}, &tuist.OverlayOptions{
+		Width: tuist.SizeAbs(8),
+		Row:   tuist.SizeAbs(3),
+		Col:   tuist.SizeAbs(10),
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_explicit_row_col.golden")
+}
+
+func TestGolden_OverlayRowColPct(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	// 50% row = vertically centered, 50% col = horizontally centered.
+	tui.ShowOverlay(&text{Lines: []string{"CTR"}}, &tuist.OverlayOptions{
+		Width: tuist.SizeAbs(8),
+		Row:   tuist.SizePct(50),
+		Col:   tuist.SizePct(50),
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_row_col_pct.golden")
+}
+
+// ── overlay offset (non-cursor-relative) ───────────────────────────────────
+
+func TestGolden_OverlayOffsetXY(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"OFF"}}, &tuist.OverlayOptions{
+		Width:   tuist.SizeAbs(8),
+		Anchor:  tuist.AnchorTopLeft,
+		OffsetX: 5,
+		OffsetY: 2,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_offset_xy.golden")
+}
+
+// ── overlay handle operations ──────────────────────────────────────────────
+
+func TestGolden_OverlaySetHidden(t *testing.T) {
+	term := vt.New(40, 6)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: []string{"bg line 0", "bg line 1", "bg line 2"}})
+	handle := tui.ShowOverlay(&text{Lines: []string{"POPUP"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(10),
+		Anchor: tuist.AnchorCenter,
+	})
+	tui.RenderOnce()
+
+	// Hide the overlay — background should show through.
+	handle.SetHidden(true)
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_set_hidden.golden")
+}
+
+func TestGolden_OverlaySetHiddenThenShow(t *testing.T) {
+	term := vt.New(40, 6)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: []string{"bg line 0", "bg line 1", "bg line 2"}})
+	handle := tui.ShowOverlay(&text{Lines: []string{"POPUP"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(10),
+		Anchor: tuist.AnchorCenter,
+	})
+	tui.RenderOnce()
+
+	handle.SetHidden(true)
+	tui.RenderOnce()
+
+	// Unhide — overlay should reappear.
+	handle.SetHidden(false)
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_set_hidden_then_show.golden")
+}
+
+func TestGolden_OverlayRemove(t *testing.T) {
+	term := vt.New(40, 6)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: []string{"bg line 0", "bg line 1", "bg line 2"}})
+	handle := tui.ShowOverlay(&text{Lines: []string{"POPUP"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(10),
+		Anchor: tuist.AnchorCenter,
+	})
+	tui.RenderOnce()
+
+	handle.Remove()
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_remove.golden")
+}
+
+func TestGolden_OverlaySetOptions(t *testing.T) {
+	term := vt.New(40, 8)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(8)})
+	handle := tui.ShowOverlay(&text{Lines: []string{"MOVE"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorTopLeft,
+	})
+	tui.RenderOnce()
+
+	// Move overlay to bottom-right.
+	handle.SetOptions(&tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorBottomRight,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_set_options.golden")
+}
+
+// ── content-relative with different anchors ────────────────────────────────
+
+func TestGolden_ContentRelativeTopRight(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	// 4 lines of content, viewport is 10.
+	tui.AddChild(&text{Lines: []string{"line-0", "line-1", "line-2", "line-3"}})
+	tui.ShowOverlay(&text{Lines: []string{"CR-TR"}}, &tuist.OverlayOptions{
+		Width:           tuist.SizeAbs(10),
+		Anchor:          tuist.AnchorTopRight,
+		ContentRelative: true,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_content_relative_top_right.golden")
+}
+
+func TestGolden_ContentRelativeBottomRight(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: []string{"line-0", "line-1", "line-2", "line-3"}})
+	tui.ShowOverlay(&text{Lines: []string{"CR-BR"}}, &tuist.OverlayOptions{
+		Width:           tuist.SizeAbs(10),
+		Anchor:          tuist.AnchorBottomRight,
+		ContentRelative: true,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_content_relative_bottom_right.golden")
+}
+
+func TestGolden_ContentRelativeWithScrolling(t *testing.T) {
+	// Content taller than viewport — overlay should be positioned
+	// relative to the full content height, not the viewport.
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	lines := make([]string, 25)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%02d", i)
+	}
+	tui.AddChild(&text{Lines: lines})
+	tui.ShowOverlay(&text{Lines: []string{"BOTTOM"}}, &tuist.OverlayOptions{
+		Width:           tuist.SizeAbs(10),
+		Anchor:          tuist.AnchorBottomRight,
+		ContentRelative: true,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_content_relative_scrolling.golden")
+}
+
+// ── overlapping overlays ───────────────────────────────────────────────────
+
+func TestGolden_OverlappingOverlays(t *testing.T) {
+	// Two overlays at the same anchor — the second (later) one should
+	// paint over the first where they overlap.
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"AAAA", "AAAA", "AAAA"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(10),
+		Anchor: tuist.AnchorTopLeft,
+	})
+	tui.ShowOverlay(&text{Lines: []string{"BB", "BB"}}, &tuist.OverlayOptions{
+		Width:   tuist.SizeAbs(8),
+		Anchor:  tuist.AnchorTopLeft,
+		OffsetX: 2,
+		OffsetY: 1,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_overlapping.golden")
+}
+
+// ── content shrink with bottom anchor ──────────────────────────────────────
+
+func TestGolden_OverlayAfterContentShrinksBottomAnchor(t *testing.T) {
+	// Same regression scenario as OverlayAfterContentShrinks but with
+	// a bottom-anchored overlay to verify it stays pinned to the
+	// visible bottom.
+	term := vt.New(40, 20)
+	tui := tuist.New(term)
+
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d", i)
+	}
+	comp := &text{Lines: lines}
+	tui.AddChild(comp)
+
+	tui.ShowOverlay(&text{Lines: []string{"STATUS"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(10),
+		Anchor: tuist.AnchorBottomRight,
+	})
+	tui.RenderOnce()
+
+	// Grow content to 100 lines.
+	big := make([]string, 100)
+	for i := range big {
+		big[i] = fmt.Sprintf("line %02d", i)
+	}
+	comp.Lines = big
+	comp.Update()
+	tui.RenderOnce()
+
+	// Shrink back to 5 lines.
+	small := make([]string, 5)
+	for i := range small {
+		small[i] = fmt.Sprintf("line %02d", i)
+	}
+	comp.Lines = small
+	comp.Update()
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/overlay_shrink_bottom_anchor.golden")
+}
+
+// ── overlay with no options ────────────────────────────────────────────────
+
+func TestGolden_OverlayNilOptions(t *testing.T) {
+	// Passing nil options should use sensible defaults.
+	term := vt.New(40, 6)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(6)})
+	tui.ShowOverlay(&text{Lines: []string{"DEFAULT"}}, nil)
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_nil_options.golden")
+}
+
+// ── multiple overlays with different anchors ───────────────────────────────
+
+func TestGolden_OverlayFourCorners(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
+	tui.ShowOverlay(&text{Lines: []string{"TL"}}, &tuist.OverlayOptions{
+		Width: tuist.SizeAbs(6), Anchor: tuist.AnchorTopLeft,
+	})
+	tui.ShowOverlay(&text{Lines: []string{"TR"}}, &tuist.OverlayOptions{
+		Width: tuist.SizeAbs(6), Anchor: tuist.AnchorTopRight,
+	})
+	tui.ShowOverlay(&text{Lines: []string{"BL"}}, &tuist.OverlayOptions{
+		Width: tuist.SizeAbs(6), Anchor: tuist.AnchorBottomLeft,
+	})
+	tui.ShowOverlay(&text{Lines: []string{"BR"}}, &tuist.OverlayOptions{
+		Width: tuist.SizeAbs(6), Anchor: tuist.AnchorBottomRight,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_four_corners.golden")
+}
+
+// ── overlay with content shorter than viewport ─────────────────────────────
+
+func TestGolden_OverlayContentShorterThanViewport(t *testing.T) {
+	// Content is only 3 lines, viewport is 10.
+	// Viewport-relative overlay should be placed relative to the viewport,
+	// not the content.
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.AddChild(&text{Lines: []string{"short-0", "short-1", "short-2"}})
+	tui.ShowOverlay(&text{Lines: []string{"BOT"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(8),
+		Anchor: tuist.AnchorBottomRight,
+	})
+	tui.RenderOnce()
+	golden.Assert(t, term.Render(), "golden/overlay_content_shorter.golden")
+}
+
+// ── overlay update after content changes ───────────────────────────────────
+
+func TestGolden_OverlayContentGrows(t *testing.T) {
+	// Overlay should stay anchored correctly as content grows past the
+	// viewport height.
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+
+	comp := &text{Lines: []string{"line-0", "line-1"}}
+	tui.AddChild(comp)
+
+	tui.ShowOverlay(&text{Lines: []string{"NOTIF"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(10),
+		Anchor: tuist.AnchorTopRight,
+	})
+	tui.RenderOnce()
+
+	// Grow content past viewport.
+	lines := make([]string, 15)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%02d", i)
+	}
+	comp.Lines = lines
+	comp.Update()
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/overlay_content_grows.golden")
+}
