@@ -261,4 +261,4 @@ tails the log and streams live charts:
 go run ./internal/debugui -f /tmp/tuist.log
 ```
 
-![debug UI dashboard](../img/debugui.png)
+<img src="../img/debugui.png" alt="debug UI dashboard" style="width: 100%">
