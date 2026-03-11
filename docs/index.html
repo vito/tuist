@@ -41,6 +41,9 @@ td{padding:.4rem .6rem;border-bottom:1px solid rgba(48,54,61,.3)}
 
 .links p{margin:0}
 
+.screenshot{margin:.75rem 0}
+.screenshot img{width:100%;border-radius:6px;border:1px solid var(--code-border)}
+
 footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border);font-size:.8rem;color:var(--fg3)}
 </style>
 </head>
@@ -131,6 +134,12 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
   
     <li>
       <a href="index.html#mouse-support">9 mouse support</a>
+
+      
+    </li>
+  
+    <li>
+      <a href="index.html#debug-ui">10 debug ui</a>
 
       
     </li>
@@ -443,6 +452,16 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 </span></span><span style="display:flex;"><span>    <span style="color:#ff7b72;font-weight:bold">return</span> <span style="color:#ff7b72;font-weight:bold">false</span>
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre>
+
+
+  
+
+
+  <h2 class="section-header"><a id="debug-ui"></a>
+  debug ui</h2>
+
+<p>Tuist has a quick-and-dirty debug UI that can help you chase down cache busts and performance issues.</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span>go run github.com/vito/tuist/debugui@latest -f /tmp/tuist.log <span style="color:#6e7681;font-style:italic"># default</span>
+</span></span></code></pre><p>Wrap your command in <code>TUIST_LOG=/tmp/tuist.log</code> and you&#39;ll see metrics stream in:</p><div class="screenshot"><a href="img/debugui.png"><img src="img/debugui.png" alt="debug UI dashboard"></a></div>
 
 
   
