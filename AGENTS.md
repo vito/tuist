@@ -13,5 +13,5 @@ Go TUI framework (`github.com/vito/tuist`). Not the Swift build tool.
   - `overlay.go` — overlay compositing
   - `spinner.go`, `textinput.go` — built-in components
 - Demos: `demos/` (consolidated launcher), `teav1/demo/`, `teav2/demo/`
-- Debug UI: `internal/debugui/` — web dashboard that tails JSONL render stats
+- Debug UI: `debugui/` — web dashboard that tails JSONL render stats
 - Debug logging: `TUI.SetDebugWriter(w)` writes per-frame JSONL stats; `TUIST_LOG` env var auto-configures it globally

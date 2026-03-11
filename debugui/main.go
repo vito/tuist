@@ -8,8 +8,8 @@
 //	TUIST_LOG=/tmp/tuist.log myapp
 //
 //	# Terminal 2: launch the dashboard
-//	go run ./internal/debugui
-//	go run ./internal/debugui -file /path/to/custom.log
+//	go run github.com/vito/tuist/debugui@latest
+//	go run github.com/vito/tuist/debugui@latest -file /path/to/custom.log
 package main
 
 import (

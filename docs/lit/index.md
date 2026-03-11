@@ -254,11 +254,11 @@ func (c *Cell) HandleMouse(ctx tuist.Context, ev tuist.MouseEvent) bool {
 
 Tuist can emit per-frame JSONL render stats for performance analysis. Set the
 `TUIST_LOG` environment variable to a file path, or call `TUI.SetDebugWriter(w)`
-to start logging. The `internal/debugui` package provides a web dashboard that
-tails the log and streams live charts:
+to start logging. The `debugui` command provides a web dashboard that tails the
+log and streams live charts:
 
 ```sh
-go run ./internal/debugui -f /tmp/tuist.log
+go run github.com/vito/tuist/debugui@latest -f /tmp/tuist.log
 ```
 
 \screenshot{img/debugui.png}{debug UI dashboard}
