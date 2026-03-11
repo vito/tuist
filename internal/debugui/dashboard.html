@@ -207,12 +207,10 @@
       <div class="stat">
         <div class="label">Avg Total</div>
         <div class="value" id="avgTotal">-</div>
-        <span class="unit">µs</span>
       </div>
       <div class="stat">
         <div class="label">P99 Total</div>
         <div class="value" id="p99Total">-</div>
-        <span class="unit">µs</span>
       </div>
       <div class="stat">
         <div class="label">Full Redraws</div>
@@ -271,7 +269,6 @@
       <div class="stat">
         <div class="label">Last GC Pause</div>
         <div class="value" id="gcPause">-</div>
-        <span class="unit">µs</span>
       </div>
       <div class="stat">
         <div class="label">Sys Memory</div>
@@ -303,11 +300,11 @@
 
     <div class="grid">
       <div class="card">
-        <h2>Frame Duration (µs) — red dots = full redraws</h2>
+        <h2>Frame Duration — red dots = full redraws</h2>
         <canvas id="timingChart"></canvas>
       </div>
       <div class="card">
-        <h2>Duration Breakdown (µs)</h2>
+        <h2>Duration Breakdown</h2>
         <canvas id="breakdownChart"></canvas>
       </div>
       <div class="card">
@@ -339,7 +336,7 @@
         <canvas id="goroutineChart"></canvas>
       </div>
       <div class="card">
-        <h2>GC Pause (µs) — dots = GC events</h2>
+        <h2>GC Pause — dots = GC events</h2>
         <canvas id="gcChart"></canvas>
       </div>
     </div>
@@ -355,8 +352,8 @@
             <th>Cached</th>
             <th>Render Rate</th>
             <th></th>
-            <th>Avg Time (µs)</th>
-            <th>Max Time (µs)</th>
+            <th>Avg Time</th>
+            <th>Max Time</th>
             <th>Avg Lines</th>
             <th>Status</th>
           </tr>
@@ -372,6 +369,24 @@
     </div>
 
     <script>
+      // ── Duration formatting ──────────────────────────────────────────────────────
+      // Input: microseconds. Output: human-readable string like "0.5ms", "10ms", "1.2s"
+      function formatDuration(us) {
+        if (us == null || isNaN(us)) return '-';
+        const ms = us / 1000;
+        if (ms < 1) return ms.toFixed(1) + 'ms';      // e.g. 0.3ms, 0.5ms
+        if (ms < 10) return ms.toFixed(1) + 'ms';      // e.g. 1.2ms, 9.8ms
+        if (ms < 1000) return ms.toFixed(0) + 'ms';    // e.g. 10ms, 500ms
+        const s = ms / 1000;
+        if (s < 10) return s.toFixed(2) + 's';          // e.g. 1.23s
+        return s.toFixed(1) + 's';                       // e.g. 12.5s
+      }
+
+      // Format microseconds for chart Y axis tick labels.
+      function durationTickCallback(value) {
+        return formatDuration(value);
+      }
+
       // ── Data store ──────────────────────────────────────────────────────────────
       // Each generation is one program session (delimited by session_start events).
       // Frames within a generation share the same X axis (frame index) so that
@@ -419,7 +434,7 @@
                 position: "top",
                 labels: { boxWidth: 10, padding: 8 },
               },
-              tooltip: { enabled: true },
+              tooltip: { enabled: true, ...(opts.tooltip || {}) },
             },
             scales: { ...commonScales, ...opts.scales },
           },
@@ -450,6 +465,17 @@
         return chart;
       }
 
+      const durationOpts = {
+        scales: {
+          y: { beginAtZero: true, grid: { color: "#21262d" }, ticks: { callback: durationTickCallback } },
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ctx.dataset.label + ': ' + formatDuration(ctx.parsed.y),
+          },
+        },
+      };
+
       const timingChart = defChart("timingChart", [
         {
           label: "Total",
@@ -457,7 +483,7 @@
           bg: "rgba(88,166,255,0.1)",
           extract: (d) => d.total_us,
         },
-      ]);
+      ], durationOpts);
 
       const breakdownChart = defChart("breakdownChart", [
         { label: "Render", color: "#3fb950", extract: (d) => d.render_us },
@@ -468,7 +494,7 @@
         },
         { label: "Diff", color: "#d29922", extract: (d) => d.diff_us },
         { label: "Write", color: "#f85149", extract: (d) => d.write_us },
-      ]);
+      ], durationOpts);
 
       const linesChart = defChart("linesChart", [
         { label: "Total", color: "#58a6ff", extract: (d) => d.total_lines },
@@ -609,7 +635,7 @@
           bg: "rgba(210,153,34,0.1)",
           extract: (d) => (d.gc_pause_ns ? d.gc_pause_ns / 1000 : 0),
         },
-      ]);
+      ], durationOpts);
 
       // ── Color helpers for generation overlays ──────────────────────────────────
       // Dim a hex color (#rrggbb) to a given opacity, returning rgba().
@@ -651,11 +677,11 @@
 
         const totals = allData.map((d) => d.total_us);
         const avg = (totals.reduce((a, b) => a + b, 0) / n) | 0;
-        document.getElementById("avgTotal").textContent = avg;
+        document.getElementById("avgTotal").textContent = formatDuration(avg);
 
         const sorted = [...totals].sort((a, b) => a - b);
         const p99 = sorted[Math.floor(n * 0.99)] || sorted[n - 1];
-        document.getElementById("p99Total").textContent = p99;
+        document.getElementById("p99Total").textContent = formatDuration(p99);
 
         const fullRedraws = allData.filter((d) => d.full_redraw);
         document.getElementById("fullRedraws").textContent = fullRedraws.length;
@@ -714,9 +740,9 @@
           );
           document.getElementById("goroutines").textContent = latest.goroutines;
           document.getElementById("numGC").textContent = latest.num_gc;
-          document.getElementById("gcPause").textContent = (
+          document.getElementById("gcPause").textContent = formatDuration(
             (latest.gc_pause_ns || 0) / 1000
-          ).toFixed(0);
+          );
           document.getElementById("sysMemory").textContent = (
             latest.sys /
             (1024 * 1024)
@@ -862,10 +888,10 @@
             barColor +
             '"></span></span></td>' +
             "<td>" +
-            avgUs +
+            formatDuration(avgUs) +
             "</td>" +
             "<td>" +
-            a.maxUs +
+            formatDuration(a.maxUs) +
             "</td>" +
             "<td>" +
             avgLines +
