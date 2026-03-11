@@ -765,3 +765,47 @@ func TestGolden_OverlayBorderedBoxWidthMismatch(t *testing.T) {
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/overlay_bordered_width_mismatch.golden")
 }
+
+func TestGolden_OverlayAfterContentShrinks(t *testing.T) {
+	// Regression: a viewport-relative overlay anchored to the top-right
+	// should stay visible when the base content shrinks. Previously the
+	// overlay was positioned relative to maxLinesRendered (a high-water
+	// mark), so after content shrank the overlay ended up in blank space
+	// far below the visible content.
+	term := vt.New(40, 20)
+	tui := tuist.New(term)
+
+	// Start with 20 lines of content.
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d", i)
+	}
+	comp := &text{Lines: lines}
+	tui.AddChild(comp)
+
+	tui.ShowOverlay(&text{Lines: []string{"NOTIFY"}}, &tuist.OverlayOptions{
+		Width:  tuist.SizeAbs(10),
+		Anchor: tuist.AnchorTopRight,
+	})
+	tui.RenderOnce()
+
+	// Grow content to 100 lines.
+	lines = make([]string, 100)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d", i)
+	}
+	comp.Lines = lines
+	comp.Update()
+	tui.RenderOnce()
+
+	// Shrink content back to 20 lines.
+	lines = make([]string, 20)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d", i)
+	}
+	comp.Lines = lines
+	comp.Update()
+	tui.RenderOnce()
+
+	golden.Assert(t, term.Render(), "golden/overlay_after_content_shrinks.golden")
+}

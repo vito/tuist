@@ -1178,7 +1178,7 @@ func (t *TUI) renderFrame(width, height int, stats *RenderStats) ([]string, *Cur
 		compositeStart := time.Now()
 		newLines, cursorPos = t.compositeOverlays(
 			newLines, cursorPos, t.overlayStack,
-			width, height, t.maxLinesRendered,
+			width, height,
 		)
 		stats.CompositeTime = time.Since(compositeStart)
 	} else {
@@ -1584,7 +1584,7 @@ func (t *TUI) emitDebugStats(w io.Writer, stats *RenderStats, compStats []Compon
 
 // ---------- overlay compositing ---------------------------------------------
 
-func (t *TUI) compositeOverlays(lines []string, baseCursor *CursorPos, overlays []*overlayEntry, termW, termH, maxLinesRendered int) ([]string, *CursorPos) {
+func (t *TUI) compositeOverlays(lines []string, baseCursor *CursorPos, overlays []*overlayEntry, termW, termH int) ([]string, *CursorPos) {
 	contentH := len(lines)
 	result := make([]string, contentH)
 	copy(result, lines)
@@ -1717,7 +1717,10 @@ func (t *TUI) compositeOverlays(lines []string, baseCursor *CursorPos, overlays 
 	}
 
 	// Overlays (both viewport-relative and content-relative) can extend the working height.
-	workingH := max(maxLinesRendered, minNeeded)
+	// Use contentH (the current content height) rather than maxLinesRendered
+	// (high-water mark) so that viewport-relative overlays track the actual
+	// content bounds when content shrinks.
+	workingH := max(contentH, minNeeded)
 	for len(result) < workingH {
 		result = append(result, "")
 	}
