@@ -58,6 +58,20 @@ func (p Plugin) Shell(content booklit.Content) booklit.Content {
 	}
 }
 
+// Screenshot renders an image that fits within its parent container.
+//
+//	\screenshot{img/debugui.png}{debug UI dashboard}
+func (p Plugin) Screenshot(src, alt booklit.Content) booklit.Content {
+	return booklit.Styled{
+		Style:   "screenshot",
+		Content: alt,
+		Partials: booklit.Partials{
+			"Src": src,
+		},
+		Block: true,
+	}
+}
+
 // HeaderLinks renders a horizontal row of navigation links.
 //
 //	\header-links{
