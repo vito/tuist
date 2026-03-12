@@ -503,7 +503,6 @@ func (t *TUI) Start() error {
 
 	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
 	t.loopDone = make(chan struct{})
-	go t.runLoop()
 
 	// Auto-configure debug logging from environment.
 	if logPath := os.Getenv("TUIST_LOG"); logPath != "" && t.debugWriter == nil {
@@ -527,6 +526,12 @@ func (t *TUI) Start() error {
 	if err != nil {
 		return err
 	}
+
+	// Start the run loop after terminal.Start() so that the terminal's
+	// fields (e.g. ttyOut) are fully initialized before the loop goroutine
+	// can attempt to write to them.
+	go t.runLoop()
+
 	t.terminal.HideCursor()
 	t.RequestRender(false)
 	return nil
