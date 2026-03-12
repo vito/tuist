@@ -1810,6 +1810,80 @@ func (t *TUI) positionHardwareCursor(pos *CursorPos, totalLines int) {
 	}
 }
 
+// ---------- print above -----------------------------------------------------
+
+// PrintAbove writes text into the terminal scrollback buffer above the
+// TUI's rendered content. The TUI content is erased and re-rendered below
+// the printed text on the next frame. Newlines in the text are translated
+// to \r\n for proper terminal output.
+//
+// This is useful for content that must not be word-wrapped by the TUI
+// renderer (e.g. clickable URLs) or for persistent output that should
+// remain in scrollback after the TUI exits.
+//
+// Safe to call from any goroutine.
+func (t *TUI) PrintAbove(text string) {
+	t.Dispatch(func() {
+		t.printAbove(text)
+	})
+}
+
+func (t *TUI) printAbove(text string) {
+	buf := &t.writeBuf
+	buf.Reset()
+
+	// Move to the top of our rendered area.
+	if t.hardwareCursorRow > 0 {
+		buf.WriteString(cursorUp(t.hardwareCursorRow))
+	}
+	buf.WriteString("\r")
+
+	// Erase all TUI content from here down.
+	buf.WriteString("\x1b[J")
+
+	// Write the above text with \r\n line endings.
+	lines := strings.Split(text, "\n")
+	// Trim trailing empty line from Split if text ends with \n.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	for i, line := range lines {
+		if i > 0 {
+			buf.WriteString("\r\n")
+		}
+		buf.WriteString(line)
+	}
+	// End with \r\n so TUI content starts on the next line.
+	buf.WriteString("\r\n")
+
+	t.terminal.Write(buf.Bytes())
+
+	// Reset rendering state so the TUI re-renders from scratch
+	// starting at the current cursor position.
+	t.previousLines = nil
+	t.previousWidth = -1
+	t.cursorRow = 0
+	t.hardwareCursorRow = 0
+	t.maxLinesRendered = 0
+	t.previousViewportTop = 0
+}
+
+// AboveWriter returns an io.Writer that prints each Write call's content
+// above the TUI via [PrintAbove]. Each Write is a separate PrintAbove
+// call; callers should buffer complete messages before writing.
+func (t *TUI) AboveWriter() io.Writer {
+	return &aboveWriter{tui: t}
+}
+
+type aboveWriter struct {
+	tui *TUI
+}
+
+func (w *aboveWriter) Write(p []byte) (int, error) {
+	w.tui.PrintAbove(string(p))
+	return len(p), nil
+}
+
 // ---------- helpers ---------------------------------------------------------
 
 func clamp(v, lo, hi int) int {
