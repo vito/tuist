@@ -8,15 +8,20 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 	"golang.org/x/sys/windows"
 )
 
-// StdTerminal is a Terminal backed by the standard file descriptors
-// It uses the Windows Console API to enable virtual terminal processing
-// and raw input mode.
+// StdTerminal is a Terminal backed by the standard file descriptors.
+// It detects which of stdin, stdout, or stderr is a console and uses
+// that for input, output, and size queries.
 type StdTerminal struct {
 	origInMode  uint32
 	origOutMode uint32
+	ttyIn       io.Reader // reader for input
+	ttyInFd     windows.Handle
+	ttyOut      *os.File // file to write output to
+	ttyOutFd    windows.Handle
 	onInput     func([]byte)
 	onResize    func()
 	stopCancel  context.CancelFunc
@@ -35,6 +40,33 @@ type StdTerminal struct {
 	rows   int
 }
 
+// findTTYs checks stdin, stdout, and stderr for console handles.
+// Returns an input reader (stdin if it's a console) and an output writer
+// (preferring stderr, then stdout). Either may be nil.
+func findTTYs() (in io.Reader, out io.Writer) {
+	if term.IsTerminal(os.Stdin.Fd()) {
+		in = os.Stdin
+	}
+	for _, f := range []*os.File{os.Stderr, os.Stdout} {
+		if term.IsTerminal(f.Fd()) {
+			out = f
+			break
+		}
+	}
+	return
+}
+
+// openInputTTY opens CONIN$ as a fallback input source when stdin is
+// not a console (e.g. when stdin is piped). Returns nil, nil if not
+// available.
+func openInputTTY() (*os.File, error) {
+	f, err := os.OpenFile("CONIN$", os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 func NewStdTerminal() *StdTerminal {
 	return &StdTerminal{}
 }
@@ -44,20 +76,50 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	t.onResize = onResize
 	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
 
-	inHandle := windows.Handle(os.Stdin.Fd())
-	outHandle := windows.Handle(os.Stdout.Fd())
+	// Find console handles among stdin, stdout, stderr.
+	in, out := findTTYs()
+	if out == nil {
+		return fmt.Errorf("no console found on stdin, stdout, or stderr")
+	}
+	ttyOut, ok := out.(*os.File)
+	if !ok {
+		return fmt.Errorf("console output is not an *os.File")
+	}
+	t.ttyOut = ttyOut
+	t.ttyOutFd = windows.Handle(ttyOut.Fd())
+
+	// If stdin is not a console, try CONIN$ as a fallback.
+	if in == nil {
+		tty, err := openInputTTY()
+		if err != nil {
+			return err
+		}
+		if tty != nil {
+			in = tty
+		}
+	}
+	if in != nil {
+		t.ttyIn = in
+	} else {
+		t.ttyIn = os.Stdin
+	}
+	if f, ok := t.ttyIn.(*os.File); ok {
+		t.ttyInFd = windows.Handle(f.Fd())
+	} else {
+		t.ttyInFd = windows.Handle(os.Stdin.Fd())
+	}
 
 	// Save original console modes.
-	if err := windows.GetConsoleMode(inHandle, &t.origInMode); err != nil {
+	if err := windows.GetConsoleMode(t.ttyInFd, &t.origInMode); err != nil {
 		return fmt.Errorf("get input console mode: %w", err)
 	}
-	if err := windows.GetConsoleMode(outHandle, &t.origOutMode); err != nil {
+	if err := windows.GetConsoleMode(t.ttyOutFd, &t.origOutMode); err != nil {
 		return fmt.Errorf("get output console mode: %w", err)
 	}
 
 	// Enable raw input mode with virtual terminal input.
 	rawIn := uint32(windows.ENABLE_VIRTUAL_TERMINAL_INPUT | windows.ENABLE_WINDOW_INPUT)
-	if err := windows.SetConsoleMode(inHandle, rawIn); err != nil {
+	if err := windows.SetConsoleMode(t.ttyInFd, rawIn); err != nil {
 		return fmt.Errorf("set raw input mode: %w", err)
 	}
 
@@ -65,7 +127,7 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	rawOut := t.origOutMode | windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING | windows.ENABLE_PROCESSED_OUTPUT
 	// Disable auto newline so we control cursor positioning.
 	rawOut &^= windows.DISABLE_NEWLINE_AUTO_RETURN
-	if err := windows.SetConsoleMode(outHandle, rawOut); err != nil {
+	if err := windows.SetConsoleMode(t.ttyOutFd, rawOut); err != nil {
 		return fmt.Errorf("set output mode: %w", err)
 	}
 
@@ -103,7 +165,7 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 					t.onResize()
 				}
 				// Use WaitForSingleObject with a timeout to avoid busy-spinning.
-				windows.WaitForSingleObject(inHandle, 100)
+				windows.WaitForSingleObject(t.ttyInFd, 100)
 			}
 		}
 	}()
@@ -111,12 +173,12 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	return nil
 }
 
-// readStdin reads from os.Stdin forever and writes to the current inputSink.
+// readStdin reads from the TTY input forever and writes to the current inputSink.
 // This goroutine lives for the process lifetime.
 func (t *StdTerminal) readStdin() {
 	buf := make([]byte, 4096)
 	for {
-		n, err := os.Stdin.Read(buf)
+		n, err := t.ttyIn.Read(buf)
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, buf[:n])
@@ -160,18 +222,16 @@ func (t *StdTerminal) Stop() {
 	}
 
 	// Restore original console modes.
-	inHandle := windows.Handle(os.Stdin.Fd())
-	outHandle := windows.Handle(os.Stdout.Fd())
-	_ = windows.SetConsoleMode(inHandle, t.origInMode)
-	_ = windows.SetConsoleMode(outHandle, t.origOutMode)
+	_ = windows.SetConsoleMode(t.ttyInFd, t.origInMode)
+	_ = windows.SetConsoleMode(t.ttyOutFd, t.origOutMode)
 }
 
 func (t *StdTerminal) Write(p []byte) {
-	_, _ = os.Stdout.Write(p)
+	_, _ = t.ttyOut.Write(p)
 }
 
 func (t *StdTerminal) WriteString(s string) {
-	_, _ = os.Stdout.WriteString(s)
+	_, _ = t.ttyOut.WriteString(s)
 }
 
 func (t *StdTerminal) Columns() int {
@@ -196,8 +256,7 @@ func (t *StdTerminal) Rows() int {
 
 func (t *StdTerminal) refreshSize() {
 	var info windows.ConsoleScreenBufferInfo
-	outHandle := windows.Handle(os.Stdout.Fd())
-	err := windows.GetConsoleScreenBufferInfo(outHandle, &info)
+	err := windows.GetConsoleScreenBufferInfo(t.ttyOutFd, &info)
 	if err != nil {
 		return
 	}

@@ -4,6 +4,7 @@ package tuist
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,14 +13,20 @@ import (
 	"syscall"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 	"golang.org/x/sys/unix"
 )
 
-// StdTerminal is a Terminal backed by the standard file descriptors
-// Terminal dimensions are cached and refreshed on SIGWINCH to avoid
-// repeated ioctl syscalls during rendering.
+// StdTerminal is a Terminal backed by the standard file descriptors.
+// It detects which of stdin, stdout, or stderr is a TTY and uses that
+// for raw mode, output, and size queries. Input is read from whichever
+// fd is a TTY for input (typically stdin).
 type StdTerminal struct {
 	origTermios *unix.Termios
+	ttyFd       int      // fd of the TTY (for termios and size queries)
+	ttyOut      *os.File // file to write output to (the TTY)
+	ttyIn       io.Reader // reader for input (the TTY input fd)
+	ttyInFd     int       // fd for input (for termios restore)
 	onInput     func([]byte)
 	onResize    func()
 	sigCh       chan os.Signal
@@ -39,6 +46,36 @@ type StdTerminal struct {
 	rows   int
 }
 
+// findTTYs checks stdin, stdout, and stderr for TTY fds.
+// Returns an input reader (stdin if it's a TTY) and an output writer
+// (preferring stderr, then stdout). Either may be nil if no TTY is found.
+func findTTYs() (in io.Reader, out io.Writer) {
+	if term.IsTerminal(os.Stdin.Fd()) {
+		in = os.Stdin
+	}
+	for _, f := range []*os.File{os.Stderr, os.Stdout} {
+		if term.IsTerminal(f.Fd()) {
+			out = f
+			break
+		}
+	}
+	return
+}
+
+// openInputTTY opens /dev/tty as a fallback input source when stdin is
+// not a TTY (e.g. when stdin is piped). Returns nil, nil if /dev/tty is
+// not available.
+func openInputTTY() (*os.File, error) {
+	f, err := os.Open("/dev/tty")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENXIO) || errors.Is(err, syscall.ENODEV) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("could not open /dev/tty: %w", err)
+	}
+	return f, nil
+}
+
 func NewStdTerminal() *StdTerminal {
 	return &StdTerminal{}
 }
@@ -48,9 +85,44 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	t.onResize = onResize
 	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
 
-	// Save and set raw mode.
-	fd := int(os.Stdin.Fd()) // TODO: find TTY on any of stdio, to handle pipes
-	orig, err := unix.IoctlGetTermios(fd, ioctlReadTermios)
+	// Find TTY fds among stdin, stdout, stderr.
+	in, out := findTTYs()
+	if out == nil {
+		return fmt.Errorf("no TTY found on stdin, stdout, or stderr")
+	}
+	ttyOut, ok := out.(*os.File)
+	if !ok {
+		return fmt.Errorf("TTY output is not an *os.File")
+	}
+	t.ttyFd = int(ttyOut.Fd())
+	t.ttyOut = ttyOut
+
+	// If stdin is not a TTY (e.g. piped), try /dev/tty as a fallback.
+	if in == nil {
+		tty, err := openInputTTY()
+		if err != nil {
+			return err
+		}
+		if tty != nil {
+			in = tty
+		}
+	}
+	if in != nil {
+		t.ttyIn = in
+	} else {
+		t.ttyIn = os.Stdin
+	}
+	// Determine the input fd for raw mode. If the input reader is an
+	// *os.File we use its fd; otherwise fall back to the output TTY fd
+	// (which works when input and output share the same TTY).
+	if f, ok := t.ttyIn.(*os.File); ok {
+		t.ttyInFd = int(f.Fd())
+	} else {
+		t.ttyInFd = t.ttyFd
+	}
+
+	// Save and set raw mode on the input fd.
+	orig, err := unix.IoctlGetTermios(t.ttyInFd, ioctlReadTermios)
 	if err != nil {
 		return fmt.Errorf("get termios: %w", err)
 	}
@@ -63,7 +135,7 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	raw.Lflag &^= unix.ECHO | unix.ICANON | unix.IEXTEN | unix.ISIG
 	raw.Cc[unix.VMIN] = 1
 	raw.Cc[unix.VTIME] = 0
-	if err := unix.IoctlSetTermios(fd, ioctlWriteTermios, &raw); err != nil {
+	if err := unix.IoctlSetTermios(t.ttyInFd, ioctlWriteTermios, &raw); err != nil {
 		return fmt.Errorf("set raw: %w", err)
 	}
 
@@ -107,12 +179,12 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	return nil
 }
 
-// readStdin reads from os.Stdin forever and writes to the current inputSink.
+// readStdin reads from the TTY input forever and writes to the current inputSink.
 // This goroutine lives for the process lifetime.
 func (t *StdTerminal) readStdin() {
 	buf := make([]byte, 4096)
 	for {
-		n, err := os.Stdin.Read(buf)
+		n, err := t.ttyIn.Read(buf)
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, buf[:n])
@@ -158,17 +230,16 @@ func (t *StdTerminal) Stop() {
 		signal.Stop(t.sigCh)
 	}
 	if t.origTermios != nil {
-		fd := int(os.Stdin.Fd())
-		_ = unix.IoctlSetTermios(fd, ioctlWriteTermios, t.origTermios)
+		_ = unix.IoctlSetTermios(t.ttyInFd, ioctlWriteTermios, t.origTermios)
 	}
 }
 
 func (t *StdTerminal) Write(p []byte) {
-	_, _ = os.Stdout.Write(p)
+	_, _ = t.ttyOut.Write(p)
 }
 
 func (t *StdTerminal) WriteString(s string) {
-	_, _ = os.Stdout.WriteString(s)
+	_, _ = t.ttyOut.WriteString(s)
 }
 
 func (t *StdTerminal) Columns() int {
@@ -194,7 +265,7 @@ func (t *StdTerminal) Rows() int {
 // refreshSize queries the kernel for current terminal dimensions and caches
 // them. Called once at Start and on every SIGWINCH.
 func (t *StdTerminal) refreshSize() {
-	ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
+	ws, err := unix.IoctlGetWinsize(t.ttyFd, unix.TIOCGWINSZ)
 	if err != nil {
 		return
 	}
