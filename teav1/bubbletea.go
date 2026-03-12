@@ -130,6 +130,19 @@ func (b *Wrap) HandleKeyPress(_ tuist.Context, ev uv.KeyPressEvent) bool {
 	return true // bubbletea models consume all key events
 }
 
+// HandlePaste implements tuist.Pasteable. Pasted text is delivered as
+// individual rune key events to the bubbletea model, matching the
+// behavior bubbletea v1 would exhibit without bracketed paste mode.
+func (b *Wrap) HandlePaste(_ tuist.Context, ev uv.PasteEvent) bool {
+	for _, r := range string(ev) {
+		b.updateModel(tea.KeyMsg{
+			Type:  tea.KeyRunes,
+			Runes: []rune{r},
+		})
+	}
+	return true
+}
+
 // uvKeyToV1 converts an ultraviolet Key to a bubbletea v1 KeyMsg.
 func uvKeyToV1(k uv.Key) tea.KeyMsg {
 	alt := k.Mod.Contains(uv.ModAlt)

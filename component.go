@@ -300,6 +300,9 @@ func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
 			if _, ok := child.(MouseEnabled); ok {
 				c.tui.enableMouse(child)
 			}
+			if _, ok := child.(Pasteable); ok {
+				c.tui.enablePaste()
+			}
 			if m, ok := child.(Mounter); ok {
 				mctx := Context{
 					Context: cp.mountCtx,
@@ -573,6 +576,11 @@ func dismountTree(comp Component) {
 	// Decrement mouse ref count before clearing tui pointer.
 	if _, ok := comp.(MouseEnabled); ok && cp.tui != nil {
 		cp.tui.disableMouse(comp)
+	}
+
+	// Decrement paste ref count before clearing tui pointer.
+	if _, ok := comp.(Pasteable); ok && cp.tui != nil {
+		cp.tui.disablePaste()
 	}
 
 	cp.tui = nil

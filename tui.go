@@ -204,6 +204,7 @@ type TUI struct {
 	overlayStack []*overlayEntry
 
 	mouseRefCount int // number of mounted MouseEnabled components
+	pasteRefCount int // number of mounted Pasteable components
 
 	// Positional mouse dispatch: zones rebuilt after each render by scanning markers.
 	mouseZones      []mouseZone
@@ -395,6 +396,26 @@ func (t *TUI) disableMouse(comp Component) {
 	}
 }
 
+// enablePaste registers a Pasteable component, incrementing the paste
+// reference count and enabling bracketed paste mode if this is the first.
+func (t *TUI) enablePaste() {
+	t.pasteRefCount++
+	if t.pasteRefCount == 1 {
+		t.terminal.WriteString("\x1b[?2004h")
+	}
+}
+
+// disablePaste unregisters a Pasteable component, decrementing the paste
+// reference count and disabling bracketed paste when the last such
+// component is dismounted.
+func (t *TUI) disablePaste() {
+	t.pasteRefCount--
+	if t.pasteRefCount <= 0 {
+		t.pasteRefCount = 0
+		t.terminal.WriteString("\x1b[?2004l")
+	}
+}
+
 // SetFocus gives keyboard focus to the given component (or nil).
 // Must be called on the UI goroutine (from an event handler or Dispatch).
 func (t *TUI) SetFocus(comp Component) {
@@ -560,6 +581,12 @@ func (t *TUI) stop(clear bool) {
 
 	prev := t.previousLines
 	hcr := t.hardwareCursorRow
+
+	// Disable bracketed paste before restoring terminal.
+	if t.pasteRefCount > 0 {
+		t.terminal.WriteString("\x1b[?2004l")
+		t.pasteRefCount = 0
+	}
 
 	// Disable mouse tracking before restoring terminal.
 	if t.mouseRefCount > 0 {

@@ -142,8 +142,9 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	// Cache initial terminal size.
 	t.refreshSize()
 
-	// Enable bracketed paste.
-	t.WriteString("\x1b[?2004h")
+	// NOTE: bracketed paste is NOT enabled unconditionally here.
+	// It is ref-counted by the TUI and only enabled when a Pasteable
+	// component is mounted.
 
 	// Enable Kitty keyboard protocol (disambiguate escape codes).
 	t.WriteString(ansi.KittyKeyboard(ansi.KittyDisambiguateEscapeCodes, 1))
@@ -215,8 +216,8 @@ func (t *StdTerminal) Stop() {
 	// Disable Kitty keyboard protocol.
 	t.WriteString(ansi.KittyKeyboard(0, 1))
 
-	// Disable bracketed paste.
-	t.WriteString("\x1b[?2004l")
+	// NOTE: bracketed paste disable is handled by the TUI's ref-counting;
+	// no unconditional disable needed here.
 
 	// Stop directing input to the TUI.
 	t.inputMu.Lock()
