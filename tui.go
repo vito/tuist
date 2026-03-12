@@ -175,7 +175,6 @@ type TUI struct {
 	Container
 
 	terminal Terminal
-	decoder  uv.EventDecoder
 
 	// mu protects fields shared between the main goroutine and the UI
 	// goroutine: fullRedrawCount, kittyKeyboard.
@@ -216,6 +215,11 @@ type TUI struct {
 	debugWriter  io.Writer    // if non-nil, render stats are logged here
 	envDebugFile *os.File     // opened by Start from TUIST_LOG; closed by Stop
 	writeBuf     bytes.Buffer // reused across frames for terminal output
+
+	// inputPipe feeds raw bytes from the terminal reader goroutine
+	// into the TerminalReader, which handles escape sequence
+	// decoding, bracketed paste buffering, and escape timeouts.
+	inputPipe *io.PipeWriter
 
 	// ── Event loop channels ──
 
@@ -511,8 +515,13 @@ func (t *TUI) Start() error {
 		t.envDebugFile = f
 	}
 
+	t.inputPipe = t.startInputReader(t.stopCtx)
+
 	err := t.terminal.Start(
-		func(data []byte) { t.handleInput(data) },
+		func(data []byte) {
+			// Feed raw bytes into the TerminalReader via the pipe.
+			_, _ = t.inputPipe.Write(data)
+		},
 		func() { t.RequestRender(false) },
 	)
 	if err != nil {
@@ -533,6 +542,12 @@ func (t *TUI) stop(clear bool) {
 	// in-progress work.
 	if t.stopCancel != nil {
 		t.stopCancel()
+	}
+	// Close the input pipe so the TerminalReader's StreamEvents
+	// goroutine exits.
+	if t.inputPipe != nil {
+		_ = t.inputPipe.Close()
+		t.inputPipe = nil
 	}
 	if t.loopDone != nil {
 		<-t.loopDone
@@ -622,26 +637,21 @@ func (t *TUI) RequestRender(repaint bool) {
 
 // ---------- input handling --------------------------------------------------
 
-func (t *TUI) handleInput(data []byte) {
-	// Decode events on the input goroutine (decoder is stateless enough)
-	// and post them to the event channel for the UI goroutine to process.
-	buf := data
-	for len(buf) > 0 {
-		n, ev := t.decoder.Decode(buf)
-		if n == 0 {
-			break
-		}
-		buf = buf[n:]
-		if ev == nil {
-			continue
-		}
-		select {
-		case t.eventCh <- ev:
-		default:
-			// Channel full — drop event rather than block the input reader.
-			// This should be rare with a reasonably sized buffer.
-		}
-	}
+// startInputReader creates a TerminalReader backed by a pipe and
+// streams decoded events (including properly buffered bracketed paste)
+// to eventCh. Returns the write end of the pipe for the terminal's
+// stdin reader to feed bytes into.
+func (t *TUI) startInputReader(ctx context.Context) *io.PipeWriter {
+	pr, pw := io.Pipe()
+	reader := uv.NewTerminalReader(pr, os.Getenv("TERM"))
+	go func() {
+		defer pr.Close()
+		// StreamEvents blocks until ctx is cancelled or the reader
+		// hits an error (e.g. pipe closed). It handles escape
+		// timeouts, bracketed paste buffering, terminfo lookups, etc.
+		_ = reader.StreamEvents(ctx, t.eventCh)
+	}()
+	return pw
 }
 
 func (t *TUI) dispatchEvent(ev uv.Event) {

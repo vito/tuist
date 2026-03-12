@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/stretchr/testify/assert"
@@ -991,6 +992,63 @@ func TestScanMouseZones_StripsMarkers(t *testing.T) {
 	out := term.written.String()
 	assert.NotContains(t, out, "z") // no ESC[...z marker in output
 	assert.Contains(t, out, "hello")
+}
+
+// drainForPaste reads events from the channel until it finds a PasteEvent,
+// skipping PasteStartEvent and other non-paste events that TerminalReader
+// emits alongside the buffered content.
+func drainForPaste(t *testing.T, ch <-chan uv.Event) uv.PasteEvent {
+	t.Helper()
+	for {
+		select {
+		case ev := <-ch:
+			if pe, ok := ev.(uv.PasteEvent); ok {
+				return pe
+			}
+			// PasteStartEvent, PasteEndEvent, etc. — skip.
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for PasteEvent")
+			return uv.PasteEvent{} // unreachable
+		}
+	}
+}
+
+func TestBracketedPaste(t *testing.T) {
+	term := newMockTerminal(80, 24)
+	tui := New(term)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pw := tui.startInputReader(ctx)
+
+	// Simulate bracketed paste: ESC[200~ <content> ESC[201~
+	pasteContent := `time=2026-03-11T20:28:43.280-04:00 level=WARN msg="failed to load module schema" dir=/home/vito/src/dang/mod/doug error="module introspection query"
+time=2026-03-11T20:28:43.280-04:00 level=WARN msg="failed to get schema for file" path=/home/vito/src/dang/mod/doug/main.dang`
+
+	raw := "\x1b[200~" + pasteContent + "\x1b[201~"
+	_, err := pw.Write([]byte(raw))
+	require.NoError(t, err)
+
+	pe := drainForPaste(t, tui.eventCh)
+	assert.Equal(t, pasteContent, pe.Content)
+}
+
+func TestBracketedPasteAcrossChunks(t *testing.T) {
+	term := newMockTerminal(80, 24)
+	tui := New(term)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pw := tui.startInputReader(ctx)
+
+	// Split paste across two writes.
+	_, err := pw.Write([]byte("\x1b[200~hello "))
+	require.NoError(t, err)
+	_, err = pw.Write([]byte("world\x1b[201~"))
+	require.NoError(t, err)
+
+	pe := drainForPaste(t, tui.eventCh)
+	assert.Equal(t, "hello world", pe.Content)
 }
 
 func TestZoneContains(t *testing.T) {
