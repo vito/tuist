@@ -9,6 +9,7 @@ import (
 
 // TextInput is a text editor component with cursor, history, and
 // kill-line support. It supports multiline editing via Shift+Enter.
+// Long lines are word-wrapped to fit the available width.
 type TextInput struct {
 	Compo
 
@@ -26,6 +27,10 @@ type TextInput struct {
 	cursor int
 
 	focused bool
+
+	// lastRenderWidth stores the width from the most recent Render call,
+	// used by CursorScreenCol and moveCursorVertically.
+	lastRenderWidth int
 
 	// OnSubmit is called when Enter is pressed. The string is the trimmed
 	// input value. Return true to clear the input after submission.
@@ -74,16 +79,12 @@ func (t *TextInput) CursorEnd() { t.cursor = len(t.value) }
 // the prompt width. This is useful for callers that need to position
 // overlays (e.g. completion menus) relative to the cursor.
 func (t *TextInput) CursorScreenCol() int {
-	row, col := t.cursorRowCol()
-	promptW := VisibleWidth(t.Prompt)
-	if row > 0 && t.ContinuationPrompt != "" {
-		promptW = VisibleWidth(t.ContinuationPrompt)
-	}
-	return promptW + col
+	_, col := t.wrappedCursorRowCol()
+	return col
 }
 
 // cursorRowCol computes the (row, col) of the cursor within the value,
-// treating '\n' as line separators.
+// treating '\n' as line separators (without wrapping).
 func (t *TextInput) cursorRowCol() (row, col int) {
 	for i := 0; i < t.cursor && i < len(t.value); i++ {
 		if t.value[i] == '\n' {
@@ -96,8 +97,64 @@ func (t *TextInput) cursorRowCol() (row, col int) {
 	return
 }
 
+// wrappedCursorRowCol computes the (row, col) of the cursor in the
+// wrapped output, accounting for word wrapping at lastRenderWidth.
+// col includes the prompt width.
+func (t *TextInput) wrappedCursorRowCol() (row, col int) {
+	prompt := t.Prompt
+	contPrompt := t.ContinuationPrompt
+	if contPrompt == "" {
+		w := VisibleWidth(prompt)
+		contPrompt = strings.Repeat(" ", w)
+	}
+	promptW := VisibleWidth(prompt)
+	contPromptW := VisibleWidth(contPrompt)
+	width := t.lastRenderWidth
+
+	inputLines := strings.Split(string(t.value), "\n")
+	runeOffset := 0
+	visualRow := 0
+	for i, inputLine := range inputLines {
+		lineRunes := []rune(inputLine)
+		firstW := width - promptW
+		nextW := width - contPromptW
+		if i > 0 {
+			firstW = nextW
+		}
+		segments := wordWrapRunes(lineRunes, firstW, nextW)
+		for j, seg := range segments {
+			segStart := runeOffset + seg.runeStart
+			segEnd := runeOffset + seg.runeEnd
+			if t.cursor >= segStart && (t.cursor < segEnd || (t.cursor == segEnd && (j == len(segments)-1 && i == len(inputLines)-1))) {
+				// Cursor is in this segment.
+				pw := contPromptW
+				if i == 0 && j == 0 {
+					pw = promptW
+				}
+				cursorInSeg := t.cursor - segStart
+				col = pw + VisibleWidth(string(lineRunes[seg.runeStart:seg.runeStart+cursorInSeg]))
+				return visualRow, col
+			}
+			visualRow++
+		}
+		runeOffset += len(lineRunes) + 1 // +1 for '\n'
+	}
+	// Fallback: cursor at end.
+	pw := contPromptW
+	if len(inputLines) <= 1 {
+		// Check if we're still on the first visual line.
+		if visualRow <= 1 {
+			pw = promptW
+		}
+	}
+	return visualRow - 1, pw
+}
+
 // Render returns one or more lines: prompt + input, with cursor position.
+// Long lines are word-wrapped to fit ctx.Width.
 func (t *TextInput) Render(ctx Context) RenderResult {
+	t.lastRenderWidth = ctx.Width
+
 	val := string(t.value)
 	inputLines := strings.Split(val, "\n")
 
@@ -108,42 +165,70 @@ func (t *TextInput) Render(ctx Context) RenderResult {
 		w := VisibleWidth(prompt)
 		contPrompt = strings.Repeat(" ", w)
 	}
+	promptW := VisibleWidth(prompt)
+	contPromptW := VisibleWidth(contPrompt)
 
 	var lines []string
-	for i, inputLine := range inputLines {
-		var buf strings.Builder
-		if i == 0 {
-			buf.WriteString(prompt)
-		} else {
-			buf.WriteString(contPrompt)
-		}
-		buf.WriteString(inputLine)
+	var cursorRow, cursorCol int
+	runeOffset := 0
 
-		// Append ghost suggestion on the last line, at the end.
-		if i == len(inputLines)-1 && t.Suggestion != "" && t.cursor == len(t.value) {
-			hint := t.Suggestion
-			current := val
-			hint = strings.TrimPrefix(hint, current)
-			if hint != "" {
-				if t.SuggestionStyle != nil {
-					buf.WriteString(t.SuggestionStyle(hint))
-				} else {
-					buf.WriteString(hint)
+	for i, inputLine := range inputLines {
+		lineRunes := []rune(inputLine)
+
+		// Compute available content widths.
+		firstW := ctx.Width - promptW
+		nextW := ctx.Width - contPromptW
+		if i > 0 {
+			firstW = nextW
+		}
+
+		segments := wordWrapRunes(lineRunes, firstW, nextW)
+		isLastInputLine := i == len(inputLines)-1
+
+		for j, seg := range segments {
+			isLastSeg := j == len(segments)-1
+
+			// Choose prompt for this visual line.
+			p := contPrompt
+			pw := contPromptW
+			if i == 0 && j == 0 {
+				p = prompt
+				pw = promptW
+			}
+
+			var buf strings.Builder
+			buf.WriteString(p)
+			buf.WriteString(seg.text)
+
+			// Ghost suggestion on the very last visual line.
+			if isLastInputLine && isLastSeg && t.Suggestion != "" && t.cursor == len(t.value) {
+				hint := strings.TrimPrefix(t.Suggestion, val)
+				if hint != "" {
+					if t.SuggestionStyle != nil {
+						buf.WriteString(t.SuggestionStyle(hint))
+					} else {
+						buf.WriteString(hint)
+					}
 				}
 			}
-		}
 
-		lines = append(lines, buf.String())
+			lines = append(lines, buf.String())
+
+			// Track cursor position.
+			segStart := runeOffset + seg.runeStart
+			segEnd := runeOffset + seg.runeEnd
+			if t.cursor >= segStart && (t.cursor < segEnd || (t.cursor == segEnd && isLastInputLine && isLastSeg)) {
+				cursorInSeg := t.cursor - segStart
+				cursorRow = len(lines) - 1
+				cursorCol = pw + VisibleWidth(string(lineRunes[seg.runeStart:seg.runeStart+cursorInSeg]))
+			}
+		}
+		runeOffset += len(lineRunes) + 1 // +1 for '\n'
 	}
 
 	var cursor *CursorPos
 	if t.focused {
-		row, col := t.cursorRowCol()
-		promptW := VisibleWidth(prompt)
-		if row > 0 {
-			promptW = VisibleWidth(contPrompt)
-		}
-		cursor = &CursorPos{Row: row, Col: promptW + col}
+		cursor = &CursorPos{Row: cursorRow, Col: cursorCol}
 	}
 
 	return RenderResult{
@@ -281,9 +366,9 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 		return true
 	}
 
-	// Up/Down: move between lines if multiline, else bubble.
+	// Up/Down: move between visual lines (including wrapped lines), else bubble.
 	if key.Code == uv.KeyUp && key.Mod == 0 {
-		if t.hasMultipleLines() {
+		if t.hasMultipleVisualLines() {
 			t.moveCursorVertically(-1)
 			return true
 		}
@@ -291,7 +376,7 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 		return handled
 	}
 	if key.Code == uv.KeyDown && key.Mod == 0 {
-		if t.hasMultipleLines() {
+		if t.hasMultipleVisualLines() {
 			t.moveCursorVertically(1)
 			return true
 		}
@@ -399,27 +484,86 @@ func (t *TextInput) lineEnd() int {
 	return i
 }
 
-// moveCursorVertically moves the cursor up (dir=-1) or down (dir=1) by one line.
+// moveCursorVertically moves the cursor up (dir=-1) or down (dir=1)
+// by one visual (wrapped) line.
 func (t *TextInput) moveCursorVertically(dir int) {
-	row, col := t.cursorRowCol()
-	targetRow := row + dir
+	prompt := t.Prompt
+	contPrompt := t.ContinuationPrompt
+	if contPrompt == "" {
+		w := VisibleWidth(prompt)
+		contPrompt = strings.Repeat(" ", w)
+	}
+	promptW := VisibleWidth(prompt)
+	contPromptW := VisibleWidth(contPrompt)
+	width := t.lastRenderWidth
 
-	// Find the target row start and length.
-	lines := strings.Split(string(t.value), "\n")
-	if targetRow < 0 || targetRow >= len(lines) {
+	// Build the list of visual segments with their rune offsets.
+	type visualLine struct {
+		runeOffset int // absolute rune offset in t.value
+		seg        wrapSegment
+		promptW    int
+	}
+	inputLines := strings.Split(string(t.value), "\n")
+	var vlines []visualLine
+	runeOffset := 0
+	for i, inputLine := range inputLines {
+		lineRunes := []rune(inputLine)
+		firstW := width - promptW
+		nextW := width - contPromptW
+		if i > 0 {
+			firstW = nextW
+		}
+		segments := wordWrapRunes(lineRunes, firstW, nextW)
+		for j, seg := range segments {
+			pw := contPromptW
+			if i == 0 && j == 0 {
+				pw = promptW
+			}
+			vlines = append(vlines, visualLine{runeOffset: runeOffset, seg: seg, promptW: pw})
+		}
+		runeOffset += len(lineRunes) + 1
+	}
+
+	// Find which visual line the cursor is on.
+	currentVLine := len(vlines) - 1
+	for vi, vl := range vlines {
+		segStart := vl.runeOffset + vl.seg.runeStart
+		segEnd := vl.runeOffset + vl.seg.runeEnd
+		if t.cursor >= segStart && t.cursor < segEnd {
+			currentVLine = vi
+			break
+		}
+		if t.cursor == segEnd && vi == len(vlines)-1 {
+			currentVLine = vi
+			break
+		}
+	}
+
+	targetVLine := currentVLine + dir
+	if targetVLine < 0 || targetVLine >= len(vlines) {
 		return
 	}
 
-	// Compute the rune offset of the target position.
-	offset := 0
-	for i := range targetRow {
-		offset += len([]rune(lines[i])) + 1 // +1 for '\n'
+	// Compute the visible column of the cursor in the current visual line.
+	cur := vlines[currentVLine]
+	cursorInSeg := t.cursor - (cur.runeOffset + cur.seg.runeStart)
+	segRunes := t.value[cur.runeOffset+cur.seg.runeStart : cur.runeOffset+cur.seg.runeStart+cursorInSeg]
+	curCol := cur.promptW + VisibleWidth(string(segRunes))
+
+	// Move to the same visible column in the target visual line.
+	tgt := vlines[targetVLine]
+	tgtRunes := t.value[tgt.runeOffset+tgt.seg.runeStart : tgt.runeOffset+tgt.seg.runeEnd]
+	col := 0
+	ri := 0
+	for ri < len(tgtRunes) {
+		rw := VisibleWidth(string(tgtRunes[ri : ri+1]))
+		if tgt.promptW+col+rw > curCol {
+			break
+		}
+		col += rw
+		ri++
 	}
-	lineLen := len([]rune(lines[targetRow]))
-	if col > lineLen {
-		col = lineLen
-	}
-	t.cursor = offset + col
+	t.cursor = tgt.runeOffset + tgt.seg.runeStart + ri
 }
 
 func (t *TextInput) wordLeft() int {
@@ -478,4 +622,113 @@ func runeClass(r rune) int {
 		return 0
 	}
 	return 1
+}
+
+// hasMultipleVisualLines returns true if the input would render as more than
+// one visual line, either from explicit newlines or word wrapping.
+func (t *TextInput) hasMultipleVisualLines() bool {
+	if slices.Contains(t.value, '\n') {
+		return true
+	}
+	if t.lastRenderWidth <= 0 {
+		return false
+	}
+	prompt := t.Prompt
+	promptW := VisibleWidth(prompt)
+	availW := t.lastRenderWidth - promptW
+	if availW <= 0 {
+		return false
+	}
+	return VisibleWidth(string(t.value)) > availW
+}
+
+// wrapSegment describes a slice of a logical line after word wrapping.
+type wrapSegment struct {
+	text      string // the text content of this segment
+	runeStart int    // starting rune index within the logical line
+	runeEnd   int    // exclusive ending rune index within the logical line
+}
+
+// wordWrapRunes word-wraps runes into segments. The first segment uses
+// firstWidth visible columns; subsequent segments use contWidth. If widths
+// are <= 0, no wrapping is performed.
+func wordWrapRunes(runes []rune, firstWidth, contWidth int) []wrapSegment {
+	if len(runes) == 0 {
+		return []wrapSegment{{text: "", runeStart: 0, runeEnd: 0}}
+	}
+
+	// No wrapping if width is not constraining.
+	if firstWidth <= 0 && contWidth <= 0 {
+		return []wrapSegment{{text: string(runes), runeStart: 0, runeEnd: len(runes)}}
+	}
+
+	var segments []wrapSegment
+	pos := 0
+	isFirst := true
+
+	for pos < len(runes) {
+		maxW := contWidth
+		if isFirst {
+			maxW = firstWidth
+		}
+		isFirst = false
+
+		if maxW <= 0 {
+			// Can't fit anything; take everything to avoid infinite loop.
+			segments = append(segments, wrapSegment{
+				text:      string(runes[pos:]),
+				runeStart: pos,
+				runeEnd:   len(runes),
+			})
+			break
+		}
+
+		// Find how many runes fit within maxW visible columns.
+		end := pos
+		col := 0
+		lastSpace := -1
+		for end < len(runes) {
+			rw := VisibleWidth(string(runes[end]))
+			if col+rw > maxW {
+				break
+			}
+			if runes[end] == ' ' {
+				lastSpace = end
+			}
+			col += rw
+			end++
+		}
+
+		if end >= len(runes) {
+			// Rest fits on this line.
+			segments = append(segments, wrapSegment{
+				text:      string(runes[pos:]),
+				runeStart: pos,
+				runeEnd:   len(runes),
+			})
+			break
+		}
+
+		// Need to break. Prefer word boundary.
+		if lastSpace > pos {
+			// Break after the space: include the space on this line,
+			// next line starts with the next word.
+			segments = append(segments, wrapSegment{
+				text:      string(runes[pos : lastSpace+1]),
+				runeStart: pos,
+				runeEnd:   lastSpace + 1,
+			})
+			pos = lastSpace + 1
+		} else {
+			// No word boundary found; hard break at character boundary.
+			segments = append(segments, wrapSegment{
+				text:      string(runes[pos:end]),
+				runeStart: pos,
+				runeEnd:   end,
+			})
+			pos = end
+		}
+	}
+
+	return segments
 }
