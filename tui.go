@@ -195,7 +195,9 @@ type TUI struct {
 
 	cursorRow           int
 	hardwareCursorRow   int
+	hardwareCursorCol   int // last written cursor column (1-indexed terminal column)
 	showHardwareCursor  bool
+	cursorHidden        bool // tracks whether we've sent HideCursor to the terminal
 	clearOnShrink       bool
 	maxLinesRendered    int
 	previousViewportTop int
@@ -242,10 +244,11 @@ type TUI struct {
 // use [TUI.RenderOnce] for synchronous single-frame rendering.
 func New(term Terminal) *TUI {
 	t := &TUI{
-		terminal:   term,
-		eventCh:    make(chan uv.Event, 64),
-		dispatchCh: make(chan struct{}, 1),
-		renderCh:   make(chan struct{}, 1),
+		terminal:     term,
+		cursorHidden: true, // assume hidden until explicitly shown
+		eventCh:      make(chan uv.Event, 64),
+		dispatchCh:   make(chan struct{}, 1),
+		renderCh:     make(chan struct{}, 1),
 	}
 	// Wire upward propagation: when any child calls Update(), the root
 	// Compo's requestRender triggers TUI.RequestRender.
@@ -355,8 +358,9 @@ func (t *TUI) SetShowHardwareCursor(enabled bool) {
 		return
 	}
 	t.showHardwareCursor = enabled
-	if !enabled {
+	if !enabled && !t.cursorHidden {
 		t.terminal.HideCursor()
+		t.cursorHidden = true
 	}
 }
 
@@ -554,6 +558,7 @@ func (t *TUI) Start() error {
 	go t.runLoop()
 
 	t.terminal.HideCursor()
+	t.cursorHidden = true
 	t.RequestRender(false)
 	return nil
 }
@@ -655,6 +660,7 @@ func (t *TUI) RequestRender(repaint bool) {
 			t.previousWidth = -1
 			t.cursorRow = 0
 			t.hardwareCursorRow = 0
+			t.hardwareCursorCol = 0
 			t.maxLinesRendered = 0
 			t.previousViewportTop = 0
 		})
@@ -1367,6 +1373,7 @@ func (t *TUI) writeFullRedraw(width, height int, newLines []string, cursorPos *C
 
 	t.cursorRow = cr
 	t.hardwareCursorRow = cr
+	t.hardwareCursorCol = 0 // unknown after writing content
 	t.maxLinesRendered = ml
 	t.previousViewportTop = max(0, ml-height)
 
@@ -1440,6 +1447,7 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 
 		t.cursorRow = targetRow
 		t.hardwareCursorRow = targetRow
+		t.hardwareCursorCol = 0 // unknown after cursor movement
 	} else {
 		stats.DiffTime = time.Since(diffStart)
 	}
@@ -1494,9 +1502,20 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 	}
 
 	renderEnd := min(dr.lastChanged, len(newLines)-1)
+	prevLineCount := len(t.previousLines)
 	for i := dr.firstChanged; i <= renderEnd; i++ {
 		if i > dr.firstChanged {
-			buf.WriteString("\r\n")
+			if i < prevLineCount {
+				// Line already exists on screen — use cursor movement
+				// instead of \r\n to avoid triggering terminal scroll-
+				// to-bottom when the user has scrolled up in scrollback.
+				buf.WriteString(cursorDown(1))
+				buf.WriteString("\r")
+			} else {
+				// New line that doesn't exist yet — must use \r\n to
+				// create it.
+				buf.WriteString("\r\n")
+			}
 		}
 		buf.WriteString(escClearLine)
 		buf.WriteString(newLines[i])
@@ -1506,15 +1525,18 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 	finalCursorRow := renderEnd
 
 	// Clear deleted trailing lines.
-	if len(t.previousLines) > len(newLines) {
+	if prevLineCount > len(newLines) {
 		if renderEnd < len(newLines)-1 {
 			moveDown := len(newLines) - 1 - renderEnd
 			buf.WriteString(cursorDown(moveDown))
 			finalCursorRow = len(newLines) - 1
 		}
-		extra := len(t.previousLines) - len(newLines)
+		extra := prevLineCount - len(newLines)
+		// These lines already exist on screen — use cursor movement
+		// instead of \r\n to avoid terminal scroll-to-bottom.
 		for range extra {
-			buf.WriteString("\r\n")
+			buf.WriteString(cursorDown(1))
+			buf.WriteString("\r")
 			buf.WriteString(escClearLine)
 		}
 		buf.WriteString(cursorUp(extra))
@@ -1539,6 +1561,7 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 
 	t.cursorRow = cr
 	t.hardwareCursorRow = finalCursorRow
+	t.hardwareCursorCol = 0 // unknown after writing content
 	t.maxLinesRendered = ml
 	t.previousViewportTop = max(0, ml-height)
 
@@ -1813,27 +1836,40 @@ func (t *TUI) compositeOverlays(lines []string, baseCursor *CursorPos, overlays 
 
 func (t *TUI) positionHardwareCursor(pos *CursorPos, totalLines int) {
 	if pos == nil || totalLines <= 0 {
-		t.terminal.HideCursor()
+		if !t.cursorHidden {
+			t.terminal.HideCursor()
+			t.cursorHidden = true
+		}
 		return
 	}
 
 	targetRow := clamp(pos.Row, 0, totalLines-1)
 	targetCol := max(0, pos.Col)
+	targetTermCol := targetCol + 1 // 1-indexed for the terminal
 
 	hcr := t.hardwareCursorRow
 	show := t.showHardwareCursor
 
-	seq := cursorVertical(targetRow-hcr) + cursorColumn(targetCol+1)
-	if seq != "" {
-		t.terminal.WriteString(seq)
+	// Only write cursor movement if position actually changed.
+	if targetRow != hcr || targetTermCol != t.hardwareCursorCol {
+		seq := cursorVertical(targetRow-hcr) + cursorColumn(targetTermCol)
+		if seq != "" {
+			t.terminal.WriteString(seq)
+		}
+		t.hardwareCursorRow = targetRow
+		t.hardwareCursorCol = targetTermCol
 	}
 
-	t.hardwareCursorRow = targetRow
-
 	if show {
-		t.terminal.ShowCursor()
+		if t.cursorHidden {
+			t.terminal.ShowCursor()
+			t.cursorHidden = false
+		}
 	} else {
-		t.terminal.HideCursor()
+		if !t.cursorHidden {
+			t.terminal.HideCursor()
+			t.cursorHidden = true
+		}
 	}
 }
 
@@ -1891,6 +1927,7 @@ func (t *TUI) printAbove(text string) {
 	t.previousWidth = -1
 	t.cursorRow = 0
 	t.hardwareCursorRow = 0
+	t.hardwareCursorCol = 0
 	t.maxLinesRendered = 0
 	t.previousViewportTop = 0
 }
