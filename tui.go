@@ -552,13 +552,16 @@ func (t *TUI) Start() error {
 		return err
 	}
 
+	// Hide cursor and mark state before starting the run loop so
+	// the UI goroutine sees consistent cursorHidden state (no race).
+	t.terminal.HideCursor()
+	t.cursorHidden = true
+
 	// Start the run loop after terminal.Start() so that the terminal's
 	// fields (e.g. ttyOut) are fully initialized before the loop goroutine
 	// can attempt to write to them.
 	go t.runLoop()
 
-	t.terminal.HideCursor()
-	t.cursorHidden = true
 	t.RequestRender(false)
 	return nil
 }
