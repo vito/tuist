@@ -322,7 +322,8 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 	}
 
 	// Right arrow / Ctrl+F: accept suggestion at end, else move cursor.
-	if (key.Code == uv.KeyRight || key.Code == 'f' && key.Mod.Contains(uv.ModCtrl)) && !key.Mod.Contains(uv.ModShift) && !key.Mod.Contains(uv.ModAlt) {
+	// Exclude Ctrl modifier on Right so that Ctrl+Right falls through to word movement.
+	if (key.Code == uv.KeyRight && key.Mod == 0 || key.Code == 'f' && key.Mod == uv.ModCtrl) {
 		if key.Code == uv.KeyRight && savedSuggestion != "" && t.cursor == len(t.value) {
 			t.SetValue(savedSuggestion)
 			return true
