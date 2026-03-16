@@ -1,13 +1,13 @@
 module github.com/vito/tuist/teav2
 
-go 1.25.6
+go 1.25.3
 
 require (
 	charm.land/bubbles/v2 v2.0.0
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/lipgloss/v2 v2.0.1
 	github.com/charmbracelet/ultraviolet v0.0.0-20260309091805-903bfd0cf188
-	github.com/vito/tuist v0.0.2
+	github.com/vito/tuist v0.0.6-0.20260316153320-d7b0953fcda9
 )
 
 require (

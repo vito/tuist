@@ -1,13 +1,13 @@
 module github.com/vito/tuist/teav1
 
-go 1.25.6
+go 1.25.3
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260309091805-903bfd0cf188
-	github.com/vito/tuist v0.0.2
+	github.com/vito/tuist v0.0.6-0.20260316153320-d7b0953fcda9
 )
 
 require (
