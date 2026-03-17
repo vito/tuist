@@ -134,7 +134,7 @@ func (b *Wrap) HandleKeyPress(_ tuist.Context, ev uv.KeyPressEvent) bool {
 // individual rune key events to the bubbletea model, matching the
 // behavior bubbletea v1 would exhibit without bracketed paste mode.
 func (b *Wrap) HandlePaste(_ tuist.Context, ev uv.PasteEvent) bool {
-	for _, r := range string(ev) {
+	for _, r := range ev.Content {
 		b.updateModel(tea.KeyMsg{
 			Type:  tea.KeyRunes,
 			Runes: []rune{r},
