@@ -115,9 +115,12 @@ func (t *StdTerminal) Start(onInput func([]byte), onResize func()) error {
 	// Determine the input fd for raw mode. If the input reader is an
 	// *os.File we use its fd; otherwise fall back to the output TTY fd
 	// (which works when input and output share the same TTY).
-	if f, ok := t.ttyIn.(*os.File); ok {
+	if f, ok := t.ttyIn.(*os.File); ok && term.IsTerminal(f.Fd()) {
 		t.ttyInFd = int(f.Fd())
 	} else {
+		// Input is not a TTY (e.g. /dev/null when stdin is closed and
+		// /dev/tty is unavailable). Fall back to the output TTY fd for
+		// termios operations — both sides share the same PTY device.
 		t.ttyInFd = t.ttyFd
 	}
 
