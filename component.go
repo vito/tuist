@@ -37,6 +37,20 @@ type Context struct {
 	tui     *TUI
 	source  Component
 	recycle []string
+
+	// absoluteRow is the estimated absolute line offset of this
+	// component's first line in the full rendered output. Used by
+	// the volatile-offscreen optimisation. Set by Container as it
+	// renders children sequentially; defaults to the parent's value
+	// for non-Container parents.
+	absoluteRow int
+
+	// viewportTop is the first visible line (from the previous frame).
+	// viewportHeight is the terminal height. Together they define the
+	// visible window; volatile offscreen components use them to decide
+	// whether to return a placeholder.
+	viewportTop    int
+	viewportHeight int
 }
 
 // ScreenHeight returns the actual terminal height in rows. It is always
@@ -107,10 +121,11 @@ func (ctx Context) Dispatch(fn func()) {
 // ComponentStat captures render metrics for a single component within
 // a frame.
 type ComponentStat struct {
-	Name     string `json:"name"`
-	RenderUs int64  `json:"render_us"`
-	Lines    int    `json:"lines"`
-	Cached   bool   `json:"cached"`
+	Name      string `json:"name"`
+	RenderUs  int64  `json:"render_us"`
+	Lines     int    `json:"lines"`
+	Cached    bool   `json:"cached"`
+	Offscreen bool   `json:"offscreen,omitempty"`
 }
 
 // componentName returns a short human-readable name for a component.
@@ -370,6 +385,33 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 		return cp.cache.result
 	}
 
+	// Volatile offscreen optimisation: if the component implements
+	// Volatile, is fully above the viewport, and has been rendered at
+	// least once (so we know its height), call OffscreenRender for a
+	// stable placeholder instead of the real Render. We deliberately
+	// do NOT update the component's cache or renderedGen so that when
+	// it scrolls back into the viewport it will re-render via Render().
+	if v, ok := ch.(Volatile); ok && ctx.viewportHeight > 0 && cp.cache != nil {
+		cachedLines := len(cp.cache.result.Lines)
+		if ctx.absoluteRow+cachedLines <= ctx.viewportTop {
+			var r RenderResult
+			if stats != nil {
+				start := time.Now()
+				r = v.OffscreenRender(ctx)
+				elapsed := time.Since(start)
+				*stats = append(*stats, ComponentStat{
+					Name:      componentName(ch),
+					RenderUs:  elapsed.Microseconds(),
+					Lines:     len(r.Lines),
+					Offscreen: true,
+				})
+			} else {
+				r = v.OffscreenRender(ctx)
+			}
+			return r
+		}
+	}
+
 	// Cache miss — render and store. Record the generation we checked,
 	// not the current one, so any Update() during Render() is visible
 	// as a generation mismatch on the next frame.
@@ -519,6 +561,24 @@ type Focusable interface {
 	SetFocused(ctx Context, focused bool)
 }
 
+// Volatile is an optional interface for components that re-render
+// frequently but whose changes are unimportant when offscreen (e.g.
+// spinners, progress bars). When a Volatile component is fully above
+// the visible viewport, the framework calls OffscreenRender instead of
+// Render, producing stable output that prevents unnecessary full
+// redraws in terminal multiplexers like tmux or Vim terminals.
+//
+// OffscreenRender should return a static placeholder — for example a
+// frozen spinner frame with a label — so the component doesn't look
+// stuck if the user scrolls up to see it. The placeholder should have
+// the same number of lines as the normal Render output.
+//
+// When the component scrolls back into the viewport, normal Render
+// resumes automatically.
+type Volatile interface {
+	OffscreenRender(ctx Context) RenderResult
+}
+
 // Mounter is an optional interface for components that need to perform
 // setup when they enter a TUI-rooted tree. The Context embeds
 // context.Context whose Done() channel is closed when the component is
@@ -632,7 +692,9 @@ func (c *Container) Render(ctx Context) RenderResult {
 	var lines []string
 	var cursor *CursorPos
 	for _, ch := range c.Children {
-		r := c.RenderChild(ctx, ch)
+		childCtx := ctx
+		childCtx.absoluteRow = ctx.absoluteRow + len(lines)
+		r := c.RenderChild(childCtx, ch)
 		if r.Cursor != nil {
 			cursor = &CursorPos{
 				Row: len(lines) + r.Cursor.Row,

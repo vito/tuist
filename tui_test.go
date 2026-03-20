@@ -128,6 +128,165 @@ func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
 	assert.Contains(t, out, "\x1b[3J") // scrollback cleared
 }
 
+// volatileComponent is a test component implementing Volatile.
+// It changes its content on every render (like a spinner) and
+// returns a static placeholder for OffscreenRender.
+type volatileComponent struct {
+	Compo
+	frame       int
+	placeholder string
+}
+
+func (v *volatileComponent) Render(ctx Context) RenderResult {
+	v.frame++
+	return RenderResult{
+		Lines: []string{"frame-" + strings.Repeat("x", v.frame)},
+	}
+}
+
+func (v *volatileComponent) OffscreenRender(ctx Context) RenderResult {
+	return RenderResult{
+		Lines: []string{v.placeholder},
+	}
+}
+
+func TestVolatileOffscreenSkipsFullRedraw(t *testing.T) {
+	term := newMockTerminal(40, 5) // only 5 rows visible
+	tui := New(term)
+
+	// Put a volatile component at the top, then enough static content
+	// to push it offscreen.
+	vol := &volatileComponent{placeholder: "placeholder"}
+	tui.AddChild(vol)
+
+	filler := &staticComponent{lines: make([]string, 20)}
+	for i := range filler.lines {
+		filler.lines[i] = strings.Repeat("y", 10)
+	}
+	tui.AddChild(filler)
+
+	// Frame 1: initial render — always a full redraw.
+	tui.RenderOnce()
+	assert.Equal(t, 1, tui.FullRedraws())
+
+	// Frame 2: transition — the volatile component is offscreen and
+	// OffscreenRender returns "placeholder" which differs from the
+	// initial "frame-x". This causes one above-viewport full redraw.
+	vol.Update()
+	tui.RenderOnce()
+	transitionRedraws := tui.FullRedraws()
+	assert.Equal(t, 2, transitionRedraws, "transition to offscreen placeholder causes one full redraw")
+
+	// Frame 3+: steady state — OffscreenRender returns the same
+	// "placeholder" as frame 2, so the diff sees no changes.
+	// This is the key optimisation: spinner ticks no longer cause
+	// full redraws every 80ms.
+	vol.Update()
+	tui.RenderOnce()
+	assert.Equal(t, transitionRedraws, tui.FullRedraws(),
+		"subsequent offscreen volatile updates should not trigger full redraws")
+
+	vol.Update()
+	tui.RenderOnce()
+	assert.Equal(t, transitionRedraws, tui.FullRedraws(),
+		"additional offscreen volatile updates should not trigger full redraws")
+}
+
+func TestVolatileOffscreenSeamlessTransition(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	// When OffscreenRender returns the same content as the initial
+	// Render (like Spinner does — both use frames[0]), even the
+	// transition frame avoids a full redraw.
+	vol := &volatileComponent{placeholder: "frame-x"} // matches first Render
+	tui.AddChild(vol)
+
+	filler := &staticComponent{lines: make([]string, 20)}
+	for i := range filler.lines {
+		filler.lines[i] = strings.Repeat("y", 10)
+	}
+	tui.AddChild(filler)
+
+	tui.RenderOnce()
+	assert.Equal(t, 1, tui.FullRedraws())
+
+	// The placeholder matches the initial Render output, so the
+	// transition frame produces no diff at all.
+	vol.Update()
+	tui.RenderOnce()
+	assert.Equal(t, 1, tui.FullRedraws(),
+		"matching placeholder should avoid even the transition full redraw")
+
+	// Continued ticks — still no full redraws.
+	vol.Update()
+	tui.RenderOnce()
+	assert.Equal(t, 1, tui.FullRedraws())
+}
+
+func TestVolatileOnscreenRendersNormally(t *testing.T) {
+	term := newMockTerminal(40, 10)
+	tui := New(term)
+
+	// With only a small amount of content, the volatile component is onscreen.
+	vol := &volatileComponent{placeholder: "placeholder"}
+	tui.AddChild(vol)
+	tui.AddChild(&staticComponent{lines: []string{"below"}})
+
+	tui.RenderOnce()
+	assert.Equal(t, 1, tui.FullRedraws())
+
+	// Update the volatile component — it should render normally (not placeholder).
+	vol.Update()
+	tui.RenderOnce()
+
+	// The output should contain the real render, not the placeholder.
+	out := term.written.String()
+	assert.NotContains(t, out, "placeholder")
+}
+
+func TestVolatileReturnsToNormalWhenScrolledBack(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	vol := &volatileComponent{placeholder: "placeholder"}
+	tui.AddChild(vol)
+
+	filler := &staticComponent{lines: make([]string, 20)}
+	for i := range filler.lines {
+		filler.lines[i] = strings.Repeat("y", 10)
+	}
+	tui.AddChild(filler)
+
+	// Frame 1: initial render, volatile is offscreen.
+	tui.RenderOnce()
+
+	// Frame 2: transition to offscreen placeholder.
+	vol.Update()
+	tui.RenderOnce()
+
+	// Frame 3: stable offscreen.
+	vol.Update()
+	tui.RenderOnce()
+
+	// Now shrink filler so the volatile component is onscreen.
+	// This triggers a full redraw (filler change is above the stale
+	// viewport estimate), which resets maxLinesRendered.
+	filler.lines = []string{"only-one-line"}
+	filler.Update()
+	tui.RenderOnce()
+	// After full redraw with clear, viewport resets to 0.
+
+	// Now the volatile component is truly onscreen — render normally.
+	vol.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	assert.Contains(t, out, "frame-", "volatile should use real Render when onscreen")
+	assert.NotContains(t, out, "placeholder", "volatile should not use OffscreenRender when onscreen")
+}
+
 func TestNoChangeNoOutput(t *testing.T) {
 	term := newMockTerminal(40, 10)
 	tui := New(term)

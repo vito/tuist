@@ -928,7 +928,6 @@ func (t *TUI) scanMouseZones(lines []string) []string {
 	return stripped
 }
 
-
 // dispatchMousePositional finds the deepest (last-scanned) MouseEnabled
 // zone containing the mouse position and dispatches the event with
 // zone-relative coordinates.
@@ -1209,9 +1208,11 @@ func (t *TUI) doRender() {
 func (t *TUI) renderFrame(width, height int, stats *RenderStats) ([]string, *CursorPos, []ComponentStat) {
 	renderStart := time.Now()
 	ctx := Context{
-		Context: context.Background(),
-		tui:     t,
-		Width:   width,
+		Context:        context.Background(),
+		tui:            t,
+		Width:          width,
+		viewportTop:    max(0, t.maxLinesRendered-height),
+		viewportHeight: height,
 	}
 	var compStats []ComponentStat
 	if t.debugWriter != nil {
