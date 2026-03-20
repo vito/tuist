@@ -51,6 +51,18 @@ type Context struct {
 	// whether to return a placeholder.
 	viewportTop    int
 	viewportHeight int
+
+	// ownLinesAbove is the cumulative count of "own" lines (not from
+	// RenderChild) produced by all ancestor components. It represents
+	// the maximum possible under-estimation of absoluteRow: since
+	// childOffset only counts child output, a parent that inserts N
+	// own lines causes absoluteRow to be low by up to N. The volatile
+	// offscreen check adds this to absoluteRow to avoid ever showing
+	// a placeholder for a component that is actually visible.
+	//
+	// For Container (which has zero own lines), this adds nothing. For
+	// a parent with a 2-line header and 1-line footer, it adds 3.
+	ownLinesAbove int
 }
 
 // ScreenHeight returns the actual terminal height in rows. It is always
@@ -161,15 +173,6 @@ type RenderResult struct {
 
 // ── Mouse zone markers ─────────────────────────────────────────────────────
 
-// volatileOffscreenMargin is the number of extra lines above the
-// viewport that a Volatile component must be before OffscreenRender is
-// used. This compensates for absoluteRow under-estimation: when a
-// parent component inserts its own lines between RenderChild calls
-// (headers, separators, footers), childOffset only tracks child
-// output, so absoluteRow can be too low. A small margin ensures we
-// never replace a visible component with a placeholder.
-const volatileOffscreenMargin = 5
-
 // markerCounter allocates unique marker IDs. IDs start at 1000 to avoid
 // collision with typical ANSI sequences.
 var markerCounter atomic.Int64
@@ -239,6 +242,16 @@ type Compo struct {
 	// without any explicit position tracking by user code. Reset to 0
 	// at the start of each Render.
 	childOffset int
+
+	// prevOwnLines records how many lines this component produced in
+	// its last Render that were NOT from RenderChild calls (headers,
+	// separators, footers, etc.). Computed as len(result) - childOffset
+	// after Render completes. Used as a per-component safety margin
+	// for the volatile offscreen check: since childOffset only tracks
+	// child output, absoluteRow can under-estimate by up to
+	// prevOwnLines. The margin is accumulated through ancestor
+	// components via Context.ownLinesAbove.
+	prevOwnLines int
 
 	// Double-buffered line slices for zero-allocation rendering.
 	// renderComponent alternates between lineBufs[0] and lineBufs[1]
@@ -325,8 +338,13 @@ func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
 	// plus the cumulative lines from earlier siblings. This makes the
 	// volatile-offscreen optimisation work automatically for any
 	// component that renders children sequentially via RenderChild.
+	//
+	// Accumulate the parent's prevOwnLines into ownLinesAbove so the
+	// volatile offscreen check has the correct safety margin. For
+	// Container (zero own lines) this adds nothing.
 	childCtx := ctx
 	childCtx.absoluteRow = ctx.absoluteRow + c.childOffset
+	childCtx.ownLinesAbove = ctx.ownLinesAbove + c.prevOwnLines
 
 	// Auto-mount children so they get lifecycle hooks and
 	// proper Update() propagation through the TUI.
@@ -419,16 +437,15 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	// do NOT update the component's cache or renderedGen so that when
 	// it scrolls back into the viewport it will re-render via Render().
 	//
-	// The safety margin (volatileOffscreenMargin) accounts for parent
-	// components that insert their own lines between RenderChild calls
-	// (headers, separators, footers). The automatic childOffset
-	// tracking in RenderChild only sees child output, so the
-	// absoluteRow estimate can be low by however many "own" lines the
-	// parent adds. The margin ensures we never show a placeholder for
-	// a component that's actually within a few lines of the viewport.
+	// The ownLinesAbove margin accounts for parent components that
+	// insert their own lines between RenderChild calls (headers,
+	// separators, footers). childOffset only tracks child output, so
+	// absoluteRow can be low by up to ownLinesAbove. Adding it
+	// ensures we never show a placeholder for a visible component.
+	// For Container (zero own lines) the margin is zero.
 	if v, ok := ch.(Volatile); ok && ctx.viewportHeight > 0 && cp.cache != nil {
 		cachedLines := len(cp.cache.result.Lines)
-		if ctx.absoluteRow+cachedLines+volatileOffscreenMargin <= ctx.viewportTop {
+		if ctx.absoluteRow+cachedLines+ctx.ownLinesAbove <= ctx.viewportTop {
 			var r RenderResult
 			if stats != nil {
 				start := time.Now()
@@ -481,6 +498,11 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	cp.lineBufs[cp.bufIdx] = r.Lines
 	cp.cache = &renderCache{result: r, width: ctx.Width}
 	cp.renderedGen = gen
+
+	// Record how many lines this component produced that were NOT from
+	// RenderChild calls. This is the maximum absoluteRow under-estimation
+	// that this component introduces for its children.
+	cp.prevOwnLines = max(0, len(r.Lines)-cp.childOffset)
 
 	// Dismount render children that were present last frame but not this
 	// frame (the parent's Render stopped calling RenderChild for them).

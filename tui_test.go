@@ -287,69 +287,96 @@ func TestVolatileReturnsToNormalWhenScrolledBack(t *testing.T) {
 	assert.NotContains(t, out, "placeholder", "volatile should not use OffscreenRender when onscreen")
 }
 
-func TestVolatileMarginPreventsNearViewportPlaceholder(t *testing.T) {
-	// A Volatile component just above the viewport (within the safety
-	// margin) should still render normally to avoid showing a
-	// placeholder for something the user might see.
+// headerWrapper wraps a child with header/footer lines, simulating a
+// component that inserts its own lines between RenderChild calls.
+// Its "own lines" become the safety margin via prevOwnLines.
+type headerWrapper struct {
+	Compo
+	header []string
+	child  Component
+	footer []string
+}
+
+func (h *headerWrapper) Render(ctx Context) RenderResult {
+	lines := make([]string, len(h.header))
+	copy(lines, h.header)
+	r := h.RenderChild(ctx, h.child)
+	lines = append(lines, r.Lines...)
+	lines = append(lines, h.footer...)
+	return RenderResult{Lines: lines}
+}
+
+func TestVolatileOwnLinesMarginPreventsPlaceholder(t *testing.T) {
+	// A parent that inserts its own lines (header/footer) causes
+	// childOffset to under-estimate absoluteRow. The ownLinesAbove
+	// margin — derived from prevOwnLines, not an arbitrary constant —
+	// must prevent a visible component from getting OffscreenRender.
 	term := newMockTerminal(40, 5)
 	tui := New(term)
 
+	// Layout: headerWrapper (3 own lines: 2 header + 1 footer) around
+	// a volatile component, then filler to push it offscreen.
 	vol := &volatileComponent{placeholder: "placeholder"}
-	tui.AddChild(vol)
+	wrapper := &headerWrapper{
+		header: []string{"== HEADER 1 ==", "== HEADER 2 =="},
+		child:  vol,
+		footer: []string{"== FOOTER =="},
+	}
+	tui.AddChild(wrapper)
 
-	// With margin=5 and height=5, viewport starts at line 6 (11-5).
-	// The volatile is at line 0 with 1 line. 0+1+5=6 <= 6 is true,
-	// but we need it barely inside the margin to test. Use exactly
-	// enough filler so the component is within margin distance.
-	filler := &staticComponent{lines: make([]string, 10)}
+	// 15 filler lines → 18 total (3 wrapper + 1 volatile + 15 filler - 1
+	// because volatile is inside wrapper). Actually:
+	// wrapper = 2 header + 1 vol + 1 footer = 4 lines, filler = 15 → 19 total.
+	// Viewport at max(0, 19-5) = 14.
+	// Volatile's childOffset-based absoluteRow = 0 (wrapper's base, since
+	// childOffset doesn't count the 2 header lines).
+	// ownLinesAbove from wrapper = 3 (2 header + 1 footer from first render).
+	// Check: 0 + 1 + 3 = 4 <= 14 → offscreen. Correct — it IS offscreen
+	// (actually at row 2, so 2+1=3 ≤ 14).
+	filler := &staticComponent{lines: make([]string, 15)}
 	for i := range filler.lines {
-		filler.lines[i] = strings.Repeat("y", 10)
+		filler.lines[i] = "filler"
 	}
 	tui.AddChild(filler)
 
-	// 11 total lines, viewport starts at 6. Volatile at line 0:
-	// 0 + 1 + 5 = 6 <= 6 → just barely triggers. Volatile at the
-	// boundary should still be treated as offscreen since it's fully
-	// above the viewport.
-	tui.RenderOnce()
+	tui.RenderOnce() // first render: establishes prevOwnLines = 3
 
-	vol.Update()
-	tui.RenderOnce()
-	// The volatile component is 6 lines above viewport (0..0 vs
-	// viewport at 6), which equals the margin. It should use
-	// OffscreenRender since it's at the boundary.
-	// With margin=5: 0+1+5=6 <= 6 → offscreen.
-
-	// Now test within the margin: make filler shorter so the volatile
-	// is too close to viewport for the optimisation.
-	filler.lines = make([]string, 8) // 9 total, viewport at 4
+	// Now shrink filler so the volatile component is near the viewport.
+	// 4 wrapper + 3 filler = 7 total. Viewport at max(0, 19-5) = 14
+	// (stale maxLinesRendered). But after the shrink triggers a full
+	// redraw (above-viewport change), maxLinesRendered resets to 7.
+	// Next frame: viewport at max(0, 7-5) = 2.
+	// Vol at childOffset-absoluteRow=0. Check: 0+1+3=4 > 2 → NOT offscreen.
+	// Without the margin (0+1=1 ≤ 2) it would incorrectly be offscreen,
+	// but the real position is row 2, which IS the viewport top. The
+	// margin protects it.
+	filler.lines = make([]string, 3)
 	for i := range filler.lines {
-		filler.lines[i] = strings.Repeat("y", 10)
+		filler.lines[i] = "filler"
 	}
 	filler.Update()
-	tui.RenderOnce() // full redraw (above-viewport change from filler)
+	tui.RenderOnce() // full redraw (above-viewport), resets viewport
 
-	// Now: 9 total lines, viewport at 4. Volatile at line 0:
-	// 0 + 1 + 5 = 6 > 4 → NOT offscreen (margin protects it).
 	vol.Update()
+	term.reset()
 	tui.RenderOnce()
 
-	// The volatile should have rendered normally (not placeholder)
-	// because 0+1+5=6 > 4.
 	out := term.written.String()
 	assert.Contains(t, out, "frame-",
-		"volatile within safety margin of viewport should render normally")
+		"volatile within ownLinesAbove margin should render normally")
+	assert.NotContains(t, out, "placeholder",
+		"volatile within ownLinesAbove margin should not use OffscreenRender")
 }
 
 func TestVolatileChildOffsetAutoTracking(t *testing.T) {
-	// Verify that RenderChild automatically computes absoluteRow for
-	// children, so user code doesn't need WithAbsoluteRow.
+	// Container has zero own lines, so ownLinesAbove is 0 and the
+	// offscreen check uses the exact childOffset-based position.
 	term := newMockTerminal(40, 5)
 	tui := New(term)
 
 	// Container with: 10 static lines, 1 volatile, 10 more static.
-	// Total 21 lines, viewport starts at 16. The volatile is at line 10,
-	// which is 10+1+5=16 <= 16 → offscreen.
+	// Total 21 lines, viewport starts at 16. Volatile at line 10:
+	// 10 + 1 + 0 = 11 <= 16 → offscreen.
 	top := &staticComponent{lines: make([]string, 10)}
 	for i := range top.lines {
 		top.lines[i] = "top"
@@ -367,12 +394,10 @@ func TestVolatileChildOffsetAutoTracking(t *testing.T) {
 	tui.RenderOnce() // initial render
 	initialRedraws := tui.FullRedraws()
 
-	// Volatile is at line 10, viewport at 16. With margin:
-	// 10+1+5=16 <= 16 → offscreen.
 	vol.Update()
 	tui.RenderOnce() // transition
 	vol.Update()
-	tui.RenderOnce() // stable
+	tui.RenderOnce() // stable — should not trigger another full redraw
 
 	assert.Equal(t, initialRedraws+1, tui.FullRedraws(),
 		"auto-tracked absoluteRow should enable offscreen optimisation via Container")
