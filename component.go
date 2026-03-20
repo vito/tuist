@@ -82,6 +82,26 @@ func (ctx Context) Resize(w, h int) Context {
 	return ctx
 }
 
+// WithAbsoluteRow returns a copy of ctx with the absolute row offset
+// set to row. Container-like components that manually call [RenderChild]
+// for multiple children should use this to keep the volatile-offscreen
+// optimisation accurate:
+//
+//	for _, ch := range children {
+//	    r := parent.RenderChild(ctx.WithAbsoluteRow(ctx.AbsoluteRow()+len(lines)), ch)
+//	    lines = append(lines, r.Lines...)
+//	}
+func (ctx Context) WithAbsoluteRow(row int) Context {
+	ctx.absoluteRow = row
+	return ctx
+}
+
+// AbsoluteRow returns the estimated absolute line offset of this
+// component within the full rendered output.
+func (ctx Context) AbsoluteRow() int {
+	return ctx.absoluteRow
+}
+
 // SetFocus gives keyboard focus to the given component (or nil to blur).
 func (ctx Context) SetFocus(comp Component) {
 	ctx.tui.SetFocus(comp)
@@ -692,9 +712,7 @@ func (c *Container) Render(ctx Context) RenderResult {
 	var lines []string
 	var cursor *CursorPos
 	for _, ch := range c.Children {
-		childCtx := ctx
-		childCtx.absoluteRow = ctx.absoluteRow + len(lines)
-		r := c.RenderChild(childCtx, ch)
+		r := c.RenderChild(ctx.WithAbsoluteRow(ctx.absoluteRow+len(lines)), ch)
 		if r.Cursor != nil {
 			cursor = &CursorPos{
 				Row: len(lines) + r.Cursor.Row,
