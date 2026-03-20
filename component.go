@@ -82,25 +82,7 @@ func (ctx Context) Resize(w, h int) Context {
 	return ctx
 }
 
-// WithAbsoluteRow returns a copy of ctx with the absolute row offset
-// set to row. Container-like components that manually call [RenderChild]
-// for multiple children should use this to keep the volatile-offscreen
-// optimisation accurate:
-//
-//	for _, ch := range children {
-//	    r := parent.RenderChild(ctx.WithAbsoluteRow(ctx.AbsoluteRow()+len(lines)), ch)
-//	    lines = append(lines, r.Lines...)
-//	}
-func (ctx Context) WithAbsoluteRow(row int) Context {
-	ctx.absoluteRow = row
-	return ctx
-}
 
-// AbsoluteRow returns the estimated absolute line offset of this
-// component within the full rendered output.
-func (ctx Context) AbsoluteRow() int {
-	return ctx.absoluteRow
-}
 
 // SetFocus gives keyboard focus to the given component (or nil to blur).
 func (ctx Context) SetFocus(comp Component) {
@@ -179,6 +161,15 @@ type RenderResult struct {
 
 // ── Mouse zone markers ─────────────────────────────────────────────────────
 
+// volatileOffscreenMargin is the number of extra lines above the
+// viewport that a Volatile component must be before OffscreenRender is
+// used. This compensates for absoluteRow under-estimation: when a
+// parent component inserts its own lines between RenderChild calls
+// (headers, separators, footers), childOffset only tracks child
+// output, so absoluteRow can be too low. A small margin ensures we
+// never replace a visible component with a placeholder.
+const volatileOffscreenMargin = 5
+
 // markerCounter allocates unique marker IDs. IDs start at 1000 to avoid
 // collision with typical ANSI sequences.
 var markerCounter atomic.Int64
@@ -240,6 +231,14 @@ type Compo struct {
 	self          Component    // the Component that embeds this Compo; set by RenderChild
 	requestRender func()       // set on the root by TUI
 	markerID      atomic.Int64 // unique zone marker ID, lazy-allocated
+
+	// childOffset tracks the cumulative number of output lines from
+	// children rendered via RenderChild so far in the current Render
+	// call. RenderChild uses this to compute each child's absoluteRow
+	// automatically, so that the volatile-offscreen optimisation works
+	// without any explicit position tracking by user code. Reset to 0
+	// at the start of each Render.
+	childOffset int
 
 	// Double-buffered line slices for zero-allocation rendering.
 	// renderComponent alternates between lineBufs[0] and lineBufs[1]
@@ -322,6 +321,13 @@ func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
 	child.compo().componentStats = c.componentStats
 	c.renderChildren = append(c.renderChildren, child)
 
+	// Compute the child's absolute row from the parent's base offset
+	// plus the cumulative lines from earlier siblings. This makes the
+	// volatile-offscreen optimisation work automatically for any
+	// component that renders children sequentially via RenderChild.
+	childCtx := ctx
+	childCtx.absoluteRow = ctx.absoluteRow + c.childOffset
+
 	// Auto-mount children so they get lifecycle hooks and
 	// proper Update() propagation through the TUI.
 	if c.tui != nil {
@@ -349,7 +355,8 @@ func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
 		}
 	}
 
-	r := renderComponent(child, ctx)
+	r := renderComponent(child, childCtx)
+	c.childOffset += len(r.Lines)
 	if _, ok := child.(MouseEnabled); ok {
 		r.Lines = markLines(child, r.Lines)
 	}
@@ -411,9 +418,17 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	// stable placeholder instead of the real Render. We deliberately
 	// do NOT update the component's cache or renderedGen so that when
 	// it scrolls back into the viewport it will re-render via Render().
+	//
+	// The safety margin (volatileOffscreenMargin) accounts for parent
+	// components that insert their own lines between RenderChild calls
+	// (headers, separators, footers). The automatic childOffset
+	// tracking in RenderChild only sees child output, so the
+	// absoluteRow estimate can be low by however many "own" lines the
+	// parent adds. The margin ensures we never show a placeholder for
+	// a component that's actually within a few lines of the viewport.
 	if v, ok := ch.(Volatile); ok && ctx.viewportHeight > 0 && cp.cache != nil {
 		cachedLines := len(cp.cache.result.Lines)
-		if ctx.absoluteRow+cachedLines <= ctx.viewportTop {
+		if ctx.absoluteRow+cachedLines+volatileOffscreenMargin <= ctx.viewportTop {
 			var r RenderResult
 			if stats != nil {
 				start := time.Now()
@@ -441,6 +456,9 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	// or a parent container, so we use the OTHER buffer.
 	cp.bufIdx ^= 1
 	ctx.recycle = cp.lineBufs[cp.bufIdx][:0]
+
+	// Reset child offset so RenderChild starts counting from 0.
+	cp.childOffset = 0
 
 	// Save previous render children for orphan cleanup after Render.
 	// Nil out (rather than [:0]) so Render's appends don't alias.
@@ -712,7 +730,7 @@ func (c *Container) Render(ctx Context) RenderResult {
 	var lines []string
 	var cursor *CursorPos
 	for _, ch := range c.Children {
-		r := c.RenderChild(ctx.WithAbsoluteRow(ctx.absoluteRow+len(lines)), ch)
+		r := c.RenderChild(ctx, ch)
 		if r.Cursor != nil {
 			cursor = &CursorPos{
 				Row: len(lines) + r.Cursor.Row,

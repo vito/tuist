@@ -287,6 +287,97 @@ func TestVolatileReturnsToNormalWhenScrolledBack(t *testing.T) {
 	assert.NotContains(t, out, "placeholder", "volatile should not use OffscreenRender when onscreen")
 }
 
+func TestVolatileMarginPreventsNearViewportPlaceholder(t *testing.T) {
+	// A Volatile component just above the viewport (within the safety
+	// margin) should still render normally to avoid showing a
+	// placeholder for something the user might see.
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	vol := &volatileComponent{placeholder: "placeholder"}
+	tui.AddChild(vol)
+
+	// With margin=5 and height=5, viewport starts at line 6 (11-5).
+	// The volatile is at line 0 with 1 line. 0+1+5=6 <= 6 is true,
+	// but we need it barely inside the margin to test. Use exactly
+	// enough filler so the component is within margin distance.
+	filler := &staticComponent{lines: make([]string, 10)}
+	for i := range filler.lines {
+		filler.lines[i] = strings.Repeat("y", 10)
+	}
+	tui.AddChild(filler)
+
+	// 11 total lines, viewport starts at 6. Volatile at line 0:
+	// 0 + 1 + 5 = 6 <= 6 → just barely triggers. Volatile at the
+	// boundary should still be treated as offscreen since it's fully
+	// above the viewport.
+	tui.RenderOnce()
+
+	vol.Update()
+	tui.RenderOnce()
+	// The volatile component is 6 lines above viewport (0..0 vs
+	// viewport at 6), which equals the margin. It should use
+	// OffscreenRender since it's at the boundary.
+	// With margin=5: 0+1+5=6 <= 6 → offscreen.
+
+	// Now test within the margin: make filler shorter so the volatile
+	// is too close to viewport for the optimisation.
+	filler.lines = make([]string, 8) // 9 total, viewport at 4
+	for i := range filler.lines {
+		filler.lines[i] = strings.Repeat("y", 10)
+	}
+	filler.Update()
+	tui.RenderOnce() // full redraw (above-viewport change from filler)
+
+	// Now: 9 total lines, viewport at 4. Volatile at line 0:
+	// 0 + 1 + 5 = 6 > 4 → NOT offscreen (margin protects it).
+	vol.Update()
+	tui.RenderOnce()
+
+	// The volatile should have rendered normally (not placeholder)
+	// because 0+1+5=6 > 4.
+	out := term.written.String()
+	assert.Contains(t, out, "frame-",
+		"volatile within safety margin of viewport should render normally")
+}
+
+func TestVolatileChildOffsetAutoTracking(t *testing.T) {
+	// Verify that RenderChild automatically computes absoluteRow for
+	// children, so user code doesn't need WithAbsoluteRow.
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	// Container with: 10 static lines, 1 volatile, 10 more static.
+	// Total 21 lines, viewport starts at 16. The volatile is at line 10,
+	// which is 10+1+5=16 <= 16 → offscreen.
+	top := &staticComponent{lines: make([]string, 10)}
+	for i := range top.lines {
+		top.lines[i] = "top"
+	}
+	vol := &volatileComponent{placeholder: "placeholder"}
+	bottom := &staticComponent{lines: make([]string, 10)}
+	for i := range bottom.lines {
+		bottom.lines[i] = "bottom"
+	}
+
+	tui.AddChild(top)
+	tui.AddChild(vol)
+	tui.AddChild(bottom)
+
+	tui.RenderOnce() // initial render
+	initialRedraws := tui.FullRedraws()
+
+	// Volatile is at line 10, viewport at 16. With margin:
+	// 10+1+5=16 <= 16 → offscreen.
+	vol.Update()
+	tui.RenderOnce() // transition
+	vol.Update()
+	tui.RenderOnce() // stable
+
+	assert.Equal(t, initialRedraws+1, tui.FullRedraws(),
+		"auto-tracked absoluteRow should enable offscreen optimisation via Container")
+}
+
 func TestNoChangeNoOutput(t *testing.T) {
 	term := newMockTerminal(40, 10)
 	tui := New(term)

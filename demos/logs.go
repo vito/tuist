@@ -307,7 +307,7 @@ func (s *stressLog) Render(ctx tuist.Context) tuist.RenderResult {
 	for _, l := range s.lines {
 		l.colorize = s.colorize
 		l.verbose = s.verbose
-		r := s.RenderChild(ctx.WithAbsoluteRow(ctx.AbsoluteRow()+len(out)), l)
+		r := s.RenderChild(ctx, l)
 		out = append(out, r.Lines...)
 	}
 
