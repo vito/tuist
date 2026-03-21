@@ -183,8 +183,10 @@ type TUI struct {
 
 	// ── mu-protected state (shared between goroutines) ──
 
-	fullRedrawCount int
-	kittyKeyboard   bool
+	fullRedrawCount      int
+	kittyKeyboard        bool
+	syncOutputSupported  bool // true until DECRPM says otherwise
+	syncOutputQueryState uint8 // 0=unsent, 1=sent, 2=answered
 
 	// ── UI-goroutine-only state (no lock needed) ──
 
@@ -244,11 +246,12 @@ type TUI struct {
 // use [TUI.RenderOnce] for synchronous single-frame rendering.
 func New(term Terminal) *TUI {
 	t := &TUI{
-		terminal:     term,
-		cursorHidden: true, // assume hidden until explicitly shown
-		eventCh:      make(chan uv.Event, 64),
-		dispatchCh:   make(chan struct{}, 1),
-		renderCh:     make(chan struct{}, 1),
+		terminal:            term,
+		cursorHidden:        true,  // assume hidden until explicitly shown
+		syncOutputSupported: true,  // assume yes until DECRPM says otherwise
+		eventCh:             make(chan uv.Event, 64),
+		dispatchCh:          make(chan struct{}, 1),
+		renderCh:            make(chan struct{}, 1),
 	}
 	// Wire upward propagation: when any child calls Update(), the root
 	// Compo's requestRender triggers TUI.RequestRender.
@@ -347,6 +350,21 @@ func (t *TUI) FullRedraws() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.fullRedrawCount
+}
+
+// HasSyncOutput reports whether the terminal supports synchronized output
+// (DEC private mode 2026). This is queried via DECRQM at startup; until
+// the response arrives, it returns true (optimistic default).
+//
+// When the terminal does not support synchronized output, full redraws
+// are avoided (they would flicker) and only the visible region is
+// repainted.
+//
+// Safe to call from any goroutine.
+func (t *TUI) HasSyncOutput() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.syncOutputSupported
 }
 
 // SetShowHardwareCursor enables or disables the hardware cursor.
@@ -557,6 +575,15 @@ func (t *TUI) Start() error {
 	t.terminal.HideCursor()
 	t.cursorHidden = true
 
+	// Query synchronized output support. The response (DECRPM) is
+	// handled in dispatchEvent. Until we hear back, we assume
+	// sync output is supported (safe default — the worst case is
+	// a terminal that silently ignores the sync sequences).
+	t.terminal.WriteString(ansi.RequestSynchronizedOutputMode)
+	t.mu.Lock()
+	t.syncOutputQueryState = 1 // sent
+	t.mu.Unlock()
+
 	// Start the run loop after terminal.Start() so that the terminal's
 	// fields (e.g. ttyOut) are fully initialized before the loop goroutine
 	// can attempt to write to them.
@@ -707,6 +734,15 @@ func (t *TUI) dispatchEvent(ev uv.Event) {
 	}
 
 	switch e := ev.(type) {
+	case uv.ModeReportEvent:
+		if e.Mode == ansi.SynchronizedOutputMode {
+			supported := e.Value.IsSet() || e.Value.IsReset()
+			t.mu.Lock()
+			t.syncOutputSupported = supported
+			t.syncOutputQueryState = 2 // answered
+			t.mu.Unlock()
+		}
+		return
 	case uv.KeyboardEnhancementsEvent:
 		// Update under lock for HasKittyKeyboard() which may be called
 		// from any goroutine.
@@ -1083,6 +1119,32 @@ const (
 	escMouseSGRDisable       = "\x1b[?1006l"
 )
 
+// hasSyncOutput returns whether the terminal supports synchronized output.
+// Must only be called from the UI goroutine.
+func (t *TUI) hasSyncOutput() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.syncOutputSupported
+}
+
+// syncBegin returns the synchronized output begin sequence, or empty
+// string if the terminal does not support it.
+func (t *TUI) syncBegin() string {
+	if t.hasSyncOutput() {
+		return escSyncBegin
+	}
+	return ""
+}
+
+// syncEnd returns the synchronized output end sequence, or empty
+// string if the terminal does not support it.
+func (t *TUI) syncEnd() string {
+	if t.hasSyncOutput() {
+		return escSyncEnd
+	}
+	return ""
+}
+
 // cursorUp returns an escape sequence moving the cursor up n rows.
 // Returns "" if n <= 0.
 func cursorUp(n int) string {
@@ -1264,10 +1326,16 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 
 	// Full redraw needed?
 	if reason, clear := t.needsFullRedraw(newLines); reason != "" {
-		stats.FullRedrawReason = reason
-		t.writeFullRedraw(width, height, newLines, cursorPos, stats, clear)
-		emitStats()
-		return
+		if !t.hasSyncOutput() && clear {
+			// Without sync output, a clear+repaint would flicker.
+			// Fall through to differential/visible-region rendering.
+			// We still need the diff to see what changed.
+		} else {
+			stats.FullRedrawReason = reason
+			t.writeFullRedraw(width, height, newLines, cursorPos, stats, clear)
+			emitStats()
+			return
+		}
 	}
 
 	// Compute diff.
@@ -1299,8 +1367,15 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 		return
 	}
 
-	// First change above previous viewport → full redraw.
+	// First change above previous viewport.
 	if dr.firstChanged < t.previousViewportTop {
+		if !t.hasSyncOutput() {
+			// Without synchronized output a full clear+repaint would
+			// flicker. Instead, repaint only the visible region.
+			t.writeVisibleRepaint(width, height, newLines, cursorPos, stats, &dr, diffStart)
+			emitStats()
+			return
+		}
 		stats.FullRedrawReason = fmt.Sprintf(
 			"above_viewport:first=%d,vpTop=%d,prevLines=%d,newLines=%d,height=%d",
 			dr.firstChanged, t.previousViewportTop, len(t.previousLines), len(newLines), height,
@@ -1343,7 +1418,7 @@ func (t *TUI) writeFullRedraw(width, height int, newLines []string, cursorPos *C
 	diffStart := time.Now()
 	buf := &t.writeBuf
 	buf.Reset()
-	buf.WriteString(escSyncBegin)
+	buf.WriteString(t.syncBegin())
 	if clear {
 		buf.WriteString(escClearScrollback)
 		buf.WriteString(escClearScreen)
@@ -1359,7 +1434,7 @@ func (t *TUI) writeFullRedraw(width, height int, newLines []string, cursorPos *C
 		buf.WriteString(line)
 		buf.WriteString(segmentReset)
 	}
-	buf.WriteString(escSyncEnd)
+	buf.WriteString(t.syncEnd())
 	stats.DiffTime = time.Since(diffStart)
 	stats.BytesWritten = buf.Len()
 
@@ -1412,7 +1487,7 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 
 		buf := &t.writeBuf
 		buf.Reset()
-		buf.WriteString(escSyncBegin)
+		buf.WriteString(t.syncBegin())
 		buf.WriteString(cursorVertical(delta))
 		buf.WriteString("\r")
 		if len(newLines) == 0 {
@@ -1441,7 +1516,7 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 			}
 			buf.WriteString(cursorUp(extra))
 		}
-		buf.WriteString(escSyncEnd)
+		buf.WriteString(t.syncEnd())
 		stats.DiffTime = time.Since(diffStart)
 		stats.BytesWritten = buf.Len()
 
@@ -1467,7 +1542,7 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *CursorPos, stats *RenderStats, dr *diffResult, diffStart time.Time, viewportTop int) {
 	buf := &t.writeBuf
 	buf.Reset()
-	buf.WriteString(escSyncBegin)
+	buf.WriteString(t.syncBegin())
 
 	hardwareCursorRow := t.hardwareCursorRow
 	prevViewportTop := t.previousViewportTop
@@ -1546,7 +1621,7 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 		buf.WriteString(cursorUp(extra))
 	}
 
-	buf.WriteString(escSyncEnd)
+	buf.WriteString(t.syncEnd())
 	stats.DiffTime = time.Since(diffStart)
 
 	// Compute repainted/cached stats.
@@ -1568,6 +1643,92 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 	t.hardwareCursorCol = 0 // unknown after writing content
 	t.maxLinesRendered = ml
 	t.previousViewportTop = max(0, ml-height)
+
+	t.positionHardwareCursor(cursorPos, len(newLines))
+
+	t.previousLines = newLines
+	t.previousWidth = width
+}
+
+// writeVisibleRepaint repaints only the lines within the current viewport.
+// Used when content changes above the viewport and synchronized output is
+// not available (so a full clear+repaint would flicker).
+func (t *TUI) writeVisibleRepaint(width, height int, newLines []string, cursorPos *CursorPos, stats *RenderStats, dr *diffResult, diffStart time.Time) {
+	// Compute the new viewport.
+	ml := max(t.maxLinesRendered, len(newLines))
+	viewportTop := max(0, ml-height)
+	viewportBottom := min(viewportTop+height-1, len(newLines)-1)
+
+	stats.FullRedrawReason = fmt.Sprintf(
+		"visible_repaint(no_sync):first=%d,vpTop=%d,vpBot=%d",
+		dr.firstChanged, viewportTop, viewportBottom,
+	)
+
+	buf := &t.writeBuf
+	buf.Reset()
+
+	// Move cursor to the top of the visible region.
+	hardwareCursorRow := t.hardwareCursorRow
+	prevViewportTop := t.previousViewportTop
+	currentScreen := hardwareCursorRow - prevViewportTop
+	// We want to move to screen row 0 of the new viewport.
+	// But the cursor is at screen position currentScreen relative to
+	// the old viewport. We need to get to the line viewportTop.
+	targetScreen := 0
+	if viewportTop <= hardwareCursorRow {
+		// Target is above or at current position — move up.
+		delta := targetScreen - currentScreen
+		buf.WriteString(cursorVertical(delta))
+	} else {
+		// Target is below current position — scroll down.
+		moveToBottom := height - 1 - currentScreen
+		buf.WriteString(cursorDown(moveToBottom))
+		scroll := viewportTop - prevViewportTop - height + 1
+		if scroll > 0 {
+			for range scroll {
+				buf.WriteString("\r\n")
+			}
+		}
+	}
+	buf.WriteString("\r")
+
+	// Repaint each visible line.
+	linesRepainted := 0
+	for i := viewportTop; i <= viewportBottom; i++ {
+		if i > viewportTop {
+			if i < len(t.previousLines) {
+				buf.WriteString(cursorDown(1))
+				buf.WriteString("\r")
+			} else {
+				buf.WriteString("\r\n")
+			}
+		}
+		buf.WriteString(escClearLine)
+		if i < len(newLines) {
+			buf.WriteString(newLines[i])
+			buf.WriteString(segmentReset)
+		}
+		linesRepainted++
+	}
+
+	finalCursorRow := viewportBottom
+
+	stats.DiffTime = time.Since(diffStart)
+	stats.LinesRepainted = linesRepainted
+	stats.CacheHits = len(newLines) - linesRepainted
+	stats.FirstChangedLine = viewportTop
+	stats.LastChangedLine = viewportBottom
+	stats.BytesWritten = buf.Len()
+
+	writeStart := time.Now()
+	t.terminal.Write(buf.Bytes())
+	stats.WriteTime = time.Since(writeStart)
+
+	t.cursorRow = max(0, len(newLines)-1)
+	t.hardwareCursorRow = finalCursorRow
+	t.hardwareCursorCol = 0
+	t.maxLinesRendered = ml
+	t.previousViewportTop = viewportTop
 
 	t.positionHardwareCursor(cursorPos, len(newLines))
 

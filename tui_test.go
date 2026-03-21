@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -808,6 +809,96 @@ func TestHasKittyKeyboard(t *testing.T) {
 	// Zero flags means no support.
 	tui.dispatchEvent(uv.KeyboardEnhancementsEvent{Flags: 0})
 	assert.False(t, tui.HasKittyKeyboard())
+}
+
+// ── Synchronized output tests ──────────────────────────────────────────────
+
+func TestHasSyncOutputDefault(t *testing.T) {
+	term := newMockTerminal(80, 24)
+	tui := New(term)
+
+	// Before any DECRPM response, HasSyncOutput defaults to true.
+	assert.True(t, tui.HasSyncOutput())
+}
+
+func TestSyncOutputDetectedFromDECRPM(t *testing.T) {
+	term := newMockTerminal(80, 24)
+	tui := New(term)
+
+	// Terminal supports sync output (mode is set or reset = recognized).
+	tui.dispatchEvent(uv.ModeReportEvent{
+		Mode:  ansi.SynchronizedOutputMode,
+		Value: ansi.ModeReset, // recognized but currently off
+	})
+	assert.True(t, tui.HasSyncOutput())
+
+	// Terminal does not recognize mode 2026.
+	tui.dispatchEvent(uv.ModeReportEvent{
+		Mode:  ansi.SynchronizedOutputMode,
+		Value: ansi.ModeNotRecognized,
+	})
+	assert.False(t, tui.HasSyncOutput())
+}
+
+func TestNoSyncOutputSkipsFullRedrawForAboveViewport(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	// Mark sync output as unsupported.
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+
+	// Build enough content to have a viewport.
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	s := &staticComponent{lines: lines}
+	tui.AddChild(s)
+	tui.RenderOnce()
+	initialRedraws := tui.FullRedraws()
+
+	// Change a line above the viewport. Without sync output, this
+	// should NOT trigger a full redraw — only a visible repaint.
+	s.lines[0] = "CHANGED"
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	assert.Equal(t, initialRedraws, tui.FullRedraws(),
+		"above-viewport change should not trigger full redraw without sync output")
+
+	// The visible region should still be written.
+	out := term.written.String()
+	assert.NotEmpty(t, out, "visible repaint should produce output")
+	// Should NOT contain sync sequences.
+	assert.NotContains(t, out, escSyncBegin)
+	assert.NotContains(t, out, escSyncEnd)
+}
+
+func TestSyncOutputSequencesOmittedWhenUnsupported(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	// Mark sync output as unsupported.
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+
+	s := &staticComponent{lines: []string{"hello"}}
+	tui.AddChild(s)
+	tui.RenderOnce() // first render
+	term.reset()
+
+	s.lines[0] = "world"
+	s.Update()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	assert.NotContains(t, out, escSyncBegin)
+	assert.NotContains(t, out, escSyncEnd)
+	assert.Contains(t, out, "world")
 }
 
 // ── Lifecycle tests ────────────────────────────────────────────────────────
