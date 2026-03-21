@@ -35,6 +35,15 @@ func newMockTerminal(cols, rows int) *mockTerminal {
 	return &mockTerminal{cols: cols, rows: rows}
 }
 
+// newTestTUI creates a TUI with a mock terminal and sync output enabled.
+// Most tests need sync output on to match expected rendering behavior.
+func newTestTUI(cols, rows int) (*TUI, *mockTerminal) {
+	term := newMockTerminal(cols, rows)
+	tui := New(term)
+	tui.SetSyncOutput(true)
+	return tui, term
+}
+
 func (m *mockTerminal) Start(onInput func([]byte), onResize func()) error {
 	m.onInput = onInput
 	m.onResize = onResize
@@ -67,8 +76,7 @@ func (s *staticComponent) Render(ctx Context) {
 
 
 func TestFirstRender(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 	tui.AddChild(&staticComponent{lines: []string{"hello", "world"}})
 
 	// Simulate start without goroutines.
@@ -85,8 +93,7 @@ func TestFirstRender(t *testing.T) {
 }
 
 func TestWidthChangeUsesDiffUpdate(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 	tui.AddChild(&staticComponent{lines: []string{"hello"}})
 
 	tui.RenderOnce()
@@ -102,8 +109,7 @@ func TestWidthChangeUsesDiffUpdate(t *testing.T) {
 }
 
 func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
-	term := newMockTerminal(40, 5) // only 5 rows visible
-	tui := New(term)
+	tui, term := newTestTUI(40, 5) // only 5 rows visible
 
 	// Create enough content to scroll.
 	lines := make([]string, 20)
@@ -148,8 +154,7 @@ func (v *volatileComponent) OffscreenRender(ctx Context) {
 }
 
 func TestVolatileOffscreenSkipsFullRedraw(t *testing.T) {
-	term := newMockTerminal(40, 5) // only 5 rows visible
-	tui := New(term)
+	tui, _ := newTestTUI(40, 5) // only 5 rows visible
 
 	// Put a volatile component at the top, then enough static content
 	// to push it offscreen.
@@ -190,8 +195,7 @@ func TestVolatileOffscreenSkipsFullRedraw(t *testing.T) {
 }
 
 func TestVolatileOffscreenSeamlessTransition(t *testing.T) {
-	term := newMockTerminal(40, 5)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 5)
 
 	// When OffscreenRender returns the same content as the initial
 	// Render (like Spinner does — both use frames[0]), even the
@@ -222,8 +226,7 @@ func TestVolatileOffscreenSeamlessTransition(t *testing.T) {
 }
 
 func TestVolatileOnscreenRendersNormally(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	// With only a small amount of content, the volatile component is onscreen.
 	vol := &volatileComponent{placeholder: "placeholder"}
@@ -243,8 +246,7 @@ func TestVolatileOnscreenRendersNormally(t *testing.T) {
 }
 
 func TestVolatileReturnsToNormalWhenScrolledBack(t *testing.T) {
-	term := newMockTerminal(40, 5)
-	tui := New(term)
+	tui, term := newTestTUI(40, 5)
 
 	vol := &volatileComponent{placeholder: "placeholder"}
 	tui.AddChild(vol)
@@ -304,8 +306,7 @@ func TestVolatileExactPositionWithOwnLines(t *testing.T) {
 	// from len(ctx.output.lines) at RenderChild call time. A parent
 	// that emits its own header lines before RenderChild pushes the
 	// child's absoluteRow forward correctly — no margin needed.
-	term := newMockTerminal(40, 5)
-	tui := New(term)
+	tui, term := newTestTUI(40, 5)
 
 	// Layout: headerWrapper (2 header + 1 footer) around a volatile,
 	// then filler to push it offscreen initially.
@@ -355,8 +356,7 @@ func TestVolatileExactPositionInContainer(t *testing.T) {
 	// With the output-buffer approach, absoluteRow is exact for all
 	// components. Container children get their position from the
 	// parent's output line count at RenderChild call time.
-	term := newMockTerminal(40, 5)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 5)
 
 	// Container with: 10 static lines, 1 volatile, 10 more static.
 	// Total 21 lines, viewport starts at 16. Volatile at line 10:
@@ -388,8 +388,7 @@ func TestVolatileExactPositionInContainer(t *testing.T) {
 }
 
 func TestNoChangeNoOutput(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 	tui.AddChild(&staticComponent{lines: []string{"stable"}})
 
 	tui.RenderOnce()
@@ -405,8 +404,7 @@ func TestNoChangeNoOutput(t *testing.T) {
 }
 
 func TestOverlayDoesNotStealFocus(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	// Create a main component and give it focus.
 	main := &staticComponent{lines: []string{"main"}}
@@ -527,8 +525,7 @@ func (c *compoComponent) Render(ctx Context) {
 }
 
 func TestCompoSkipsRenderWhenClean(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	// Two children with Compo: one finalized, one changing.
 	finalized := &compoComponent{lines: []string{"old line 1", "old line 2"}}
@@ -588,8 +585,7 @@ func TestContainerDirtyPropagation(t *testing.T) {
 func TestCompoCachedChildNoRepaint(t *testing.T) {
 	// Verify that a cached Compo child's line range is not repainted
 	// when only other children change.
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	clean := &compoComponent{lines: []string{"stable-1", "stable-2"}}
 	clean.Update()
@@ -616,8 +612,7 @@ func TestCompoCachedChildNoRepaint(t *testing.T) {
 }
 
 func TestUpdatePropagatesAndRequestsRender(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	child := &compoComponent{lines: []string{"hello"}}
 	child.Update()
@@ -644,8 +639,7 @@ func TestUpdatePropagatesAndRequestsRender(t *testing.T) {
 }
 
 func TestForceRender(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 	tui.AddChild(&staticComponent{lines: []string{"content"}})
 
 	tui.RenderOnce()
@@ -673,8 +667,7 @@ func TestConcurrentUpdateNotLost(t *testing.T) {
 	// The generation counter approach eliminates this: renderComponent
 	// records the generation it checked, and any concurrent Update()
 	// increments past it.
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	// A component whose Render calls Update() on itself to simulate
 	// a concurrent update during rendering. On first render it returns
@@ -760,8 +753,7 @@ func TestCachedLinesNotMutatedBySegmentReset(t *testing.T) {
 	// If it mutates the cached RenderResult's Lines slice, subsequent
 	// frames see double-reset strings that never match, causing
 	// spurious full redraws.
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	cached := &compoComponent{lines: []string{"stable"}}
 	cached.Update()
@@ -796,8 +788,7 @@ func TestCachedLinesNotMutatedBySegmentReset(t *testing.T) {
 }
 
 func TestHasKittyKeyboard(t *testing.T) {
-	term := newMockTerminal(80, 24)
-	tui := New(term)
+	tui, _ := newTestTUI(80, 24)
 
 	// Before any response, HasKittyKeyboard is false.
 	assert.False(t, tui.HasKittyKeyboard())
@@ -816,14 +807,17 @@ func TestHasKittyKeyboard(t *testing.T) {
 func TestHasSyncOutputDefault(t *testing.T) {
 	term := newMockTerminal(80, 24)
 	tui := New(term)
+	_ = term // suppress unused
 
-	// Before any DECRPM response, HasSyncOutput defaults to true.
-	assert.True(t, tui.HasSyncOutput())
+	// Before any DECRPM response, HasSyncOutput defaults to false
+	// (terminals that don't implement DECRQM won't reply).
+	assert.False(t, tui.HasSyncOutput())
 }
 
 func TestSyncOutputDetectedFromDECRPM(t *testing.T) {
 	term := newMockTerminal(80, 24)
 	tui := New(term)
+	_ = term
 
 	// Terminal supports sync output (mode is set or reset = recognized).
 	tui.dispatchEvent(uv.ModeReportEvent{
@@ -841,13 +835,8 @@ func TestSyncOutputDetectedFromDECRPM(t *testing.T) {
 }
 
 func TestNoSyncOutputSkipsFullRedrawForAboveViewport(t *testing.T) {
-	term := newMockTerminal(40, 5)
-	tui := New(term)
-
-	// Mark sync output as unsupported.
-	tui.mu.Lock()
-	tui.syncOutputSupported = false
-	tui.mu.Unlock()
+	tui, term := newTestTUI(40, 5)
+	tui.SetSyncOutput(false)
 
 	// Build enough content to have a viewport.
 	lines := make([]string, 20)
@@ -878,13 +867,8 @@ func TestNoSyncOutputSkipsFullRedrawForAboveViewport(t *testing.T) {
 }
 
 func TestSyncOutputSequencesOmittedWhenUnsupported(t *testing.T) {
-	term := newMockTerminal(40, 5)
-	tui := New(term)
-
-	// Mark sync output as unsupported.
-	tui.mu.Lock()
-	tui.syncOutputSupported = false
-	tui.mu.Unlock()
+	tui, term := newTestTUI(40, 5)
+	tui.SetSyncOutput(false)
 
 	s := &staticComponent{lines: []string{"hello"}}
 	tui.AddChild(s)
@@ -902,12 +886,8 @@ func TestSyncOutputSequencesOmittedWhenUnsupported(t *testing.T) {
 }
 
 func TestNoSyncOutputShrinkClearsStaleLines(t *testing.T) {
-	term := newMockTerminal(40, 5)
-	tui := New(term)
-
-	tui.mu.Lock()
-	tui.syncOutputSupported = false
-	tui.mu.Unlock()
+	tui, term := newTestTUI(40, 5)
+	tui.SetSyncOutput(false)
 
 	// Start with 10 lines.
 	lines := make([]string, 10)
@@ -969,8 +949,7 @@ func (c *lifecycleComponent) Render(ctx Context) {
 }
 
 func TestMountOnFirstRender(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -987,8 +966,7 @@ func TestMountOnFirstRender(t *testing.T) {
 }
 
 func TestDismountOnRemoveChild(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -1014,8 +992,7 @@ func TestMountPropagatesDownTree(t *testing.T) {
 	container.AddChild(child)
 	assert.False(t, child.mounted, "child should not be mounted before rendering")
 
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 	tui.AddChild(container)
 	assert.False(t, child.mounted, "child should not be mounted before rendering")
 
@@ -1025,8 +1002,7 @@ func TestMountPropagatesDownTree(t *testing.T) {
 }
 
 func TestDismountPropagatesDownTree(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	child := &lifecycleComponent{lines: []string{"child"}}
 	child.Update()
@@ -1042,8 +1018,7 @@ func TestDismountPropagatesDownTree(t *testing.T) {
 }
 
 func TestSlotMountDismount(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	a := &lifecycleComponent{lines: []string{"a"}}
 	a.Update()
@@ -1065,8 +1040,7 @@ func TestSlotMountDismount(t *testing.T) {
 }
 
 func TestMountContextCancelledOnDismount(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -1094,8 +1068,7 @@ func TestMountContextCancelledOnDismount(t *testing.T) {
 }
 
 func TestContainerClearDismountsAll(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	a := &lifecycleComponent{lines: []string{"a"}}
 	a.Update()
@@ -1157,8 +1130,7 @@ func (c *interactiveContainer) HandleKeyPress(_ Context, ev uv.KeyPressEvent) bo
 }
 
 func TestBubblingToParent(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	// Build tree: TUI → parent (interactive container) → child.
 	parent := &interactiveContainer{consume: false}
@@ -1180,8 +1152,7 @@ func TestBubblingToParent(t *testing.T) {
 }
 
 func TestBubblingConsumed(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	parent := &interactiveContainer{consume: false}
 	child := &interactiveComponent{lines: []string{"child"}, consume: true} // consumes
@@ -1203,8 +1174,7 @@ func TestBubblingConsumed(t *testing.T) {
 func TestBubblingNonInteractiveFocused(t *testing.T) {
 	// When the focused component doesn't implement Interactive,
 	// the event should still bubble to Interactive ancestors.
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	parent := &interactiveContainer{consume: true}
 	// staticComponent doesn't implement Interactive.
@@ -1224,8 +1194,7 @@ func TestBubblingNonInteractiveFocused(t *testing.T) {
 }
 
 func TestSpinnerMountDismountLifecycle(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	sp := NewSpinner()
 	slot := NewSlot(nil)
@@ -1274,8 +1243,7 @@ func (m *mouseComponent) HandleMouse(ctx Context, ev MouseEvent) bool {
 }
 
 func TestScanMouseZones_MarkersStrippedAndZonesDetected(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	mc := &mouseComponent{lines: []string{"hello"}, consumeMouse: true}
 	tui.AddChild(mc)
@@ -1302,8 +1270,7 @@ func TestScanMouseZones_MarkersStrippedAndZonesDetected(t *testing.T) {
 }
 
 func TestScanMouseZones_FullLineComponent(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	mc := &mouseComponent{lines: []string{"hello", "world"}, consumeMouse: true}
 	tui.AddChild(mc)
@@ -1330,8 +1297,7 @@ func TestScanMouseZones_FullLineComponent(t *testing.T) {
 }
 
 func TestScanMouseZones_InlineMark(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	// An inline MouseEnabled component rendered via RenderChildInline.
 	inline := &mouseComponent{lines: []string{"VALUE"}, consumeMouse: true}
@@ -1370,8 +1336,7 @@ func (p *markingParent) Render(ctx Context) {
 }
 
 func TestScanMouseZones_StripsMarkers(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	mc := &mouseComponent{lines: []string{"hello"}, consumeMouse: true}
 	tui.AddChild(mc)
@@ -1404,8 +1369,7 @@ func drainForPaste(t *testing.T, ch <-chan uv.Event) uv.PasteEvent {
 }
 
 func TestBracketedPaste(t *testing.T) {
-	term := newMockTerminal(80, 24)
-	tui := New(term)
+	tui, _ := newTestTUI(80, 24)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1424,8 +1388,7 @@ time=2026-03-11T20:28:43.280-04:00 level=WARN msg="failed to get schema for file
 }
 
 func TestBracketedPasteAcrossChunks(t *testing.T) {
-	term := newMockTerminal(80, 24)
-	tui := New(term)
+	tui, _ := newTestTUI(80, 24)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

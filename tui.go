@@ -246,12 +246,11 @@ type TUI struct {
 // use [TUI.RenderOnce] for synchronous single-frame rendering.
 func New(term Terminal) *TUI {
 	t := &TUI{
-		terminal:            term,
-		cursorHidden:        true,  // assume hidden until explicitly shown
-		syncOutputSupported: true,  // assume yes until DECRPM says otherwise
-		eventCh:             make(chan uv.Event, 64),
-		dispatchCh:          make(chan struct{}, 1),
-		renderCh:            make(chan struct{}, 1),
+		terminal:     term,
+		cursorHidden: true, // assume hidden until explicitly shown
+		eventCh:      make(chan uv.Event, 64),
+		dispatchCh:   make(chan struct{}, 1),
+		renderCh:     make(chan struct{}, 1),
 	}
 	// Wire upward propagation: when any child calls Update(), the root
 	// Compo's requestRender triggers TUI.RequestRender.
@@ -352,9 +351,22 @@ func (t *TUI) FullRedraws() int {
 	return t.fullRedrawCount
 }
 
+// SetSyncOutput overrides synchronized output detection. Use this to
+// force sync output on or off, e.g. in tests or when the terminal is
+// known to support it but doesn't respond to DECRQM.
+//
+// Safe to call from any goroutine.
+func (t *TUI) SetSyncOutput(supported bool) {
+	t.mu.Lock()
+	t.syncOutputSupported = supported
+	t.syncOutputQueryState = 2 // treat as answered
+	t.mu.Unlock()
+}
+
 // HasSyncOutput reports whether the terminal supports synchronized output
 // (DEC private mode 2026). This is queried via DECRQM at startup; until
-// the response arrives, it returns true (optimistic default).
+// the response arrives, it returns false (safe default for terminals
+// that don't implement DECRQM and never reply).
 //
 // When the terminal does not support synchronized output, full redraws
 // are avoided (they would flicker) and only the visible region is
@@ -592,8 +604,8 @@ func (t *TUI) Start() error {
 	} else {
 		// Query synchronized output support. The response (DECRPM)
 		// is handled in dispatchEvent. Until we hear back, we assume
-		// sync output is supported (safe default — the worst case is
-		// a terminal that silently ignores the sync sequences).
+		// sync output is NOT supported — terminals that don't
+		// implement DECRQM won't reply at all.
 		t.terminal.WriteString(ansi.RequestSynchronizedOutputMode)
 		t.mu.Lock()
 		t.syncOutputQueryState = 1 // sent
