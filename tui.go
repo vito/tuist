@@ -196,6 +196,8 @@ type TUI struct {
 	focusedComponent Component
 	inputListeners   []inputListenerEntry
 
+	frameDir            string // TUIST_FRAMES: dump each frame to this dir
+	frameNum            int
 	cursorRow           int
 	hardwareCursorRow   int
 	hardwareCursorCol   int // last written cursor column (1-indexed terminal column)
@@ -585,6 +587,13 @@ func (t *TUI) Start() error {
 
 	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
 	t.loopDone = make(chan struct{})
+
+	// Auto-configure frame dumping from environment.
+	if dir := os.Getenv("TUIST_FRAMES"); dir != "" {
+		_ = os.MkdirAll(dir, 0755)
+		t.frameDir = dir
+		t.frameNum = 0
+	}
 
 	// Auto-configure debug logging from environment.
 	if logPath := os.Getenv("TUIST_LOG"); logPath != "" && t.debugWriter == nil {
@@ -1333,6 +1342,11 @@ func (t *TUI) doRender() {
 	// so the diff engine and terminal see clean output.
 	displayLines := t.scanMouseZones(newLines)
 
+	// Dump frame for debugging if TUIST_FRAMES is set.
+	if t.frameDir != "" {
+		t.dumpFrame(displayLines, height)
+	}
+
 	// Choose rendering strategy and write to terminal.
 	if t.altScreen {
 		t.applyFrameAltScreen(width, height, displayLines, cursorPos, compStats, &stats, totalStart, &memBefore)
@@ -1979,6 +1993,38 @@ func (t *TUI) writeVisibleRepaint(width, height int, newLines []string, cursorPo
 
 	t.previousLines = newLines
 	t.previousWidth = width
+}
+
+// dumpFrame writes the full content and visible screen to numbered files
+// in the TUIST_FRAMES directory for debugging.
+func (t *TUI) dumpFrame(displayLines []string, height int) {
+	n := t.frameNum
+	t.frameNum++
+
+	path := fmt.Sprintf("%s/%d.txt", t.frameDir, n)
+
+	viewportTop := max(0, len(displayLines)-height)
+	viewportEnd := min(viewportTop+height, len(displayLines))
+
+	var buf strings.Builder
+	fmt.Fprintf(&buf, "=== frame %d | lines=%d height=%d viewportTop=%d ===\n",
+		n, len(displayLines), height, viewportTop)
+
+	buf.WriteString("\n--- screen (what alt screen should show) ---\n")
+	for i := viewportTop; i < viewportEnd; i++ {
+		fmt.Fprintf(&buf, "[%3d] %s\n", i, displayLines[i])
+	}
+
+	buf.WriteString("\n--- full content ---\n")
+	for i, line := range displayLines {
+		marker := "  "
+		if i >= viewportTop && i < viewportEnd {
+			marker = "> "
+		}
+		fmt.Fprintf(&buf, "%s[%3d] %s\n", marker, i, line)
+	}
+
+	_ = os.WriteFile(path, []byte(buf.String()), 0644)
 }
 
 // emitDebugStats writes render stats as a JSONL record if a debug writer
