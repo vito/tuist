@@ -575,14 +575,30 @@ func (t *TUI) Start() error {
 	t.terminal.HideCursor()
 	t.cursorHidden = true
 
-	// Query synchronized output support. The response (DECRPM) is
-	// handled in dispatchEvent. Until we hear back, we assume
-	// sync output is supported (safe default — the worst case is
-	// a terminal that silently ignores the sync sequences).
-	t.terminal.WriteString(ansi.RequestSynchronizedOutputMode)
-	t.mu.Lock()
-	t.syncOutputQueryState = 1 // sent
-	t.mu.Unlock()
+	// Check for explicit override via environment variable.
+	// TUIST_SYNC=0 disables synchronized output (avoids flicker on
+	// terminals that silently ignore mode 2026).
+	// TUIST_SYNC=1 forces it on (skip the DECRQM query).
+	if v := os.Getenv("TUIST_SYNC"); v == "0" {
+		t.mu.Lock()
+		t.syncOutputSupported = false
+		t.syncOutputQueryState = 2 // answered (overridden)
+		t.mu.Unlock()
+	} else if v == "1" {
+		t.mu.Lock()
+		t.syncOutputSupported = true
+		t.syncOutputQueryState = 2 // answered (overridden)
+		t.mu.Unlock()
+	} else {
+		// Query synchronized output support. The response (DECRPM)
+		// is handled in dispatchEvent. Until we hear back, we assume
+		// sync output is supported (safe default — the worst case is
+		// a terminal that silently ignores the sync sequences).
+		t.terminal.WriteString(ansi.RequestSynchronizedOutputMode)
+		t.mu.Lock()
+		t.syncOutputQueryState = 1 // sent
+		t.mu.Unlock()
+	}
 
 	// Start the run loop after terminal.Start() so that the terminal's
 	// fields (e.g. ttyOut) are fully initialized before the loop goroutine
