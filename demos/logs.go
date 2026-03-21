@@ -299,19 +299,15 @@ func makeLogLines(n int) []*logLine {
 	return lines
 }
 
-func (s *stressLog) Render(ctx tuist.Context) tuist.RenderResult {
+func (s *stressLog) Render(ctx tuist.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	out := make([]string, 0, len(s.lines)*2)
 	for _, l := range s.lines {
 		l.colorize = s.colorize
 		l.verbose = s.verbose
-		r := s.RenderChild(ctx, l)
-		out = append(out, r.Lines...)
+		s.RenderChild(ctx, l)
 	}
-
-	return tuist.RenderResult{Lines: out}
 }
 
 // ── per-line component with spinner ────────────────────────────────────────
@@ -333,7 +329,7 @@ func newLogLine(e stressEntry) *logLine {
 	}
 }
 
-func (l *logLine) Render(ctx tuist.Context) tuist.RenderResult {
+func (l *logLine) Render(ctx tuist.Context) {
 	e := l.entry
 	ts := e.ts.Format("15:04:05.000")
 	var levelStyled string
@@ -354,19 +350,16 @@ func (l *logLine) Render(ctx tuist.Context) tuist.RenderResult {
 		levelStyled = e.level
 	}
 	spin := l.RenderChildInline(ctx, l.spinner)
-	line := fmt.Sprintf("%s %s %-5s %s", spin, ts, levelStyled, e.message)
+	ctx.Line(fmt.Sprintf("%s %s %-5s %s", spin, ts, levelStyled, e.message))
 
-	lines := []string{line}
 	if l.verbose {
 		detail := fmt.Sprintf("           → stack: %s | goroutine: %d | alloc: %dKB",
 			randomStack(), rand.Intn(500), rand.Intn(8192))
 		if l.colorize {
 			detail = "\x1b[90m" + detail + "\x1b[0m"
 		}
-		lines = append(lines, detail)
+		ctx.Line(detail)
 	}
-
-	return tuist.RenderResult{Lines: lines}
 }
 
 func randomStack() string {
@@ -411,11 +404,11 @@ func (s *statusBarComponent) set(line string) {
 	s.mu.Unlock()
 	s.Update()
 }
-func (s *statusBarComponent) Render(ctx tuist.Context) tuist.RenderResult {
+func (s *statusBarComponent) Render(ctx tuist.Context) {
 	s.mu.Lock()
 	line := s.line
 	s.mu.Unlock()
-	return tuist.RenderResult{Lines: []string{line}}
+	ctx.Line(line)
 }
 
 type staticLines struct {
@@ -423,6 +416,6 @@ type staticLines struct {
 	lines []string
 }
 
-func (s *staticLines) Render(ctx tuist.Context) tuist.RenderResult {
-	return tuist.RenderResult{Lines: s.lines}
+func (s *staticLines) Render(ctx tuist.Context) {
+	ctx.Lines(s.lines...)
 }

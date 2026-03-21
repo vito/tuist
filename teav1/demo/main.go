@@ -167,6 +167,6 @@ type staticText struct {
 	line string
 }
 
-func (s *staticText) Render(ctx tuist.Context) tuist.RenderResult {
-	return tuist.RenderResult{Lines: []string{s.line}}
+func (s *staticText) Render(ctx tuist.Context) {
+	ctx.Line(s.line)
 }

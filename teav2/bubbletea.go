@@ -110,7 +110,7 @@ func (b *Wrap[T]) execCmd(cmd tea.Cmd) {
 }
 
 // Render implements tuist.Component.
-func (b *Wrap[T]) Render(ctx tuist.Context) tuist.RenderResult {
+func (b *Wrap[T]) Render(ctx tuist.Context) {
 	if ctx.Width != b.width || ctx.ScreenHeight() != b.height {
 		b.width = ctx.Width
 		b.height = ctx.ScreenHeight()
@@ -129,7 +129,7 @@ func (b *Wrap[T]) Render(ctx tuist.Context) tuist.RenderResult {
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-	return tuist.RenderResult{Lines: lines}
+	ctx.Lines(lines...)
 }
 
 // HandleKeyPress implements tuist.Interactive.

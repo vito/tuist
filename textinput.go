@@ -152,7 +152,7 @@ func (t *TextInput) wrappedCursorRowCol() (row, col int) {
 
 // Render returns one or more lines: prompt + input, with cursor position.
 // Long lines are word-wrapped to fit ctx.Width.
-func (t *TextInput) Render(ctx Context) RenderResult {
+func (t *TextInput) Render(ctx Context) {
 	t.lastRenderWidth = ctx.Width
 
 	val := string(t.value)
@@ -168,7 +168,7 @@ func (t *TextInput) Render(ctx Context) RenderResult {
 	promptW := VisibleWidth(prompt)
 	contPromptW := VisibleWidth(contPrompt)
 
-	var lines []string
+	var lineCount int
 	var cursorRow, cursorCol int
 	runeOffset := 0
 
@@ -212,28 +212,23 @@ func (t *TextInput) Render(ctx Context) RenderResult {
 				}
 			}
 
-			lines = append(lines, buf.String())
+			ctx.Line(buf.String())
+			lineCount++
 
 			// Track cursor position.
 			segStart := runeOffset + seg.runeStart
 			segEnd := runeOffset + seg.runeEnd
 			if t.cursor >= segStart && (t.cursor < segEnd || (t.cursor == segEnd && isLastInputLine && isLastSeg)) {
 				cursorInSeg := t.cursor - segStart
-				cursorRow = len(lines) - 1
+				cursorRow = lineCount - 1
 				cursorCol = pw + VisibleWidth(string(lineRunes[seg.runeStart:seg.runeStart+cursorInSeg]))
 			}
 		}
 		runeOffset += len(lineRunes) + 1 // +1 for '\n'
 	}
 
-	var cursor *CursorPos
 	if t.focused {
-		cursor = &CursorPos{Row: cursorRow, Col: cursorCol}
-	}
-
-	return RenderResult{
-		Lines:  lines,
-		Cursor: cursor,
+		ctx.SetCursor(cursorRow, cursorCol)
 	}
 }
 

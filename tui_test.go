@@ -57,10 +57,10 @@ type staticComponent struct {
 	cursor *CursorPos
 }
 
-func (s *staticComponent) Render(ctx Context) RenderResult {
-	return RenderResult{
-		Lines:  s.lines,
-		Cursor: s.cursor,
+func (s *staticComponent) Render(ctx Context) {
+	ctx.Lines(s.lines...)
+	if s.cursor != nil {
+		ctx.SetCursor(s.cursor.Row, s.cursor.Col)
 	}
 }
 
@@ -137,17 +137,13 @@ type volatileComponent struct {
 	placeholder string
 }
 
-func (v *volatileComponent) Render(ctx Context) RenderResult {
+func (v *volatileComponent) Render(ctx Context) {
 	v.frame++
-	return RenderResult{
-		Lines: []string{"frame-" + strings.Repeat("x", v.frame)},
-	}
+	ctx.Line("frame-" + strings.Repeat("x", v.frame))
 }
 
-func (v *volatileComponent) OffscreenRender(ctx Context) RenderResult {
-	return RenderResult{
-		Lines: []string{v.placeholder},
-	}
+func (v *volatileComponent) OffscreenRender(ctx Context) {
+	ctx.Line(v.placeholder)
 }
 
 func TestVolatileOffscreenSkipsFullRedraw(t *testing.T) {
@@ -289,7 +285,6 @@ func TestVolatileReturnsToNormalWhenScrolledBack(t *testing.T) {
 
 // headerWrapper wraps a child with header/footer lines, simulating a
 // component that inserts its own lines between RenderChild calls.
-// Its "own lines" become the safety margin via prevOwnLines.
 type headerWrapper struct {
 	Compo
 	header []string
@@ -297,25 +292,22 @@ type headerWrapper struct {
 	footer []string
 }
 
-func (h *headerWrapper) Render(ctx Context) RenderResult {
-	lines := make([]string, len(h.header))
-	copy(lines, h.header)
-	r := h.RenderChild(ctx, h.child)
-	lines = append(lines, r.Lines...)
-	lines = append(lines, h.footer...)
-	return RenderResult{Lines: lines}
+func (h *headerWrapper) Render(ctx Context) {
+	ctx.Lines(h.header...)
+	h.RenderChild(ctx, h.child)
+	ctx.Lines(h.footer...)
 }
 
-func TestVolatileOwnLinesMarginPreventsPlaceholder(t *testing.T) {
-	// A parent that inserts its own lines (header/footer) causes
-	// childOffset to under-estimate absoluteRow. The ownLinesAbove
-	// margin — derived from prevOwnLines, not an arbitrary constant —
-	// must prevent a visible component from getting OffscreenRender.
+func TestVolatileExactPositionWithOwnLines(t *testing.T) {
+	// With the output-buffer approach, absoluteRow is computed exactly
+	// from len(ctx.output.lines) at RenderChild call time. A parent
+	// that emits its own header lines before RenderChild pushes the
+	// child's absoluteRow forward correctly — no margin needed.
 	term := newMockTerminal(40, 5)
 	tui := New(term)
 
-	// Layout: headerWrapper (3 own lines: 2 header + 1 footer) around
-	// a volatile component, then filler to push it offscreen.
+	// Layout: headerWrapper (2 header + 1 footer) around a volatile,
+	// then filler to push it offscreen initially.
 	vol := &volatileComponent{placeholder: "placeholder"}
 	wrapper := &headerWrapper{
 		header: []string{"== HEADER 1 ==", "== HEADER 2 =="},
@@ -324,32 +316,22 @@ func TestVolatileOwnLinesMarginPreventsPlaceholder(t *testing.T) {
 	}
 	tui.AddChild(wrapper)
 
-	// 15 filler lines → 18 total (3 wrapper + 1 volatile + 15 filler - 1
-	// because volatile is inside wrapper). Actually:
 	// wrapper = 2 header + 1 vol + 1 footer = 4 lines, filler = 15 → 19 total.
 	// Viewport at max(0, 19-5) = 14.
-	// Volatile's childOffset-based absoluteRow = 0 (wrapper's base, since
-	// childOffset doesn't count the 2 header lines).
-	// ownLinesAbove from wrapper = 3 (2 header + 1 footer from first render).
-	// Check: 0 + 1 + 3 = 4 <= 14 → offscreen. Correct — it IS offscreen
-	// (actually at row 2, so 2+1=3 ≤ 14).
+	// Volatile's absoluteRow = 2 (exact: 2 header lines emitted before RenderChild).
+	// Check: 2 + 1 = 3 <= 14 → offscreen. Correct.
 	filler := &staticComponent{lines: make([]string, 15)}
 	for i := range filler.lines {
 		filler.lines[i] = "filler"
 	}
 	tui.AddChild(filler)
 
-	tui.RenderOnce() // first render: establishes prevOwnLines = 3
+	tui.RenderOnce()
 
-	// Now shrink filler so the volatile component is near the viewport.
-	// 4 wrapper + 3 filler = 7 total. Viewport at max(0, 19-5) = 14
-	// (stale maxLinesRendered). But after the shrink triggers a full
-	// redraw (above-viewport change), maxLinesRendered resets to 7.
-	// Next frame: viewport at max(0, 7-5) = 2.
-	// Vol at childOffset-absoluteRow=0. Check: 0+1+3=4 > 2 → NOT offscreen.
-	// Without the margin (0+1=1 ≤ 2) it would incorrectly be offscreen,
-	// but the real position is row 2, which IS the viewport top. The
-	// margin protects it.
+	// Shrink filler so the volatile component is near the viewport.
+	// 4 wrapper + 3 filler = 7 total. After full redraw (above-viewport
+	// change), maxLinesRendered resets to 7. Viewport at max(0, 7-5) = 2.
+	// Vol's absoluteRow = 2. Check: 2 + 1 = 3 > 2 → NOT offscreen.
 	filler.lines = make([]string, 3)
 	for i := range filler.lines {
 		filler.lines[i] = "filler"
@@ -363,20 +345,21 @@ func TestVolatileOwnLinesMarginPreventsPlaceholder(t *testing.T) {
 
 	out := term.written.String()
 	assert.Contains(t, out, "frame-",
-		"volatile within ownLinesAbove margin should render normally")
+		"volatile with exact position should render normally when onscreen")
 	assert.NotContains(t, out, "placeholder",
-		"volatile within ownLinesAbove margin should not use OffscreenRender")
+		"volatile with exact position should not use OffscreenRender when onscreen")
 }
 
-func TestVolatileChildOffsetAutoTracking(t *testing.T) {
-	// Container has zero own lines, so ownLinesAbove is 0 and the
-	// offscreen check uses the exact childOffset-based position.
+func TestVolatileExactPositionInContainer(t *testing.T) {
+	// With the output-buffer approach, absoluteRow is exact for all
+	// components. Container children get their position from the
+	// parent's output line count at RenderChild call time.
 	term := newMockTerminal(40, 5)
 	tui := New(term)
 
 	// Container with: 10 static lines, 1 volatile, 10 more static.
 	// Total 21 lines, viewport starts at 16. Volatile at line 10:
-	// 10 + 1 + 0 = 11 <= 16 → offscreen.
+	// 10 + 1 = 11 <= 16 → offscreen.
 	top := &staticComponent{lines: make([]string, 10)}
 	for i := range top.lines {
 		top.lines[i] = "top"
@@ -400,7 +383,7 @@ func TestVolatileChildOffsetAutoTracking(t *testing.T) {
 	tui.RenderOnce() // stable — should not trigger another full redraw
 
 	assert.Equal(t, initialRedraws+1, tui.FullRedraws(),
-		"auto-tracked absoluteRow should enable offscreen optimisation via Container")
+		"exact absoluteRow should enable offscreen optimisation via Container")
 }
 
 func TestNoChangeNoOutput(t *testing.T) {
@@ -537,9 +520,9 @@ type compoComponent struct {
 	renderCount int
 }
 
-func (c *compoComponent) Render(ctx Context) RenderResult {
+func (c *compoComponent) Render(ctx Context) {
 	c.renderCount++
-	return RenderResult{Lines: c.lines}
+	ctx.Lines(c.lines...)
 }
 
 func TestCompoSkipsRenderWhenClean(t *testing.T) {
@@ -727,14 +710,14 @@ type updateDuringRenderComponent struct {
 	rendered bool
 }
 
-func (u *updateDuringRenderComponent) Render(ctx Context) RenderResult {
+func (u *updateDuringRenderComponent) Render(ctx Context) {
 	snapshot := u.value
 	if !u.rendered {
 		u.rendered = true
 		u.value = "after"
 		u.Update() // simulate concurrent update
 	}
-	return RenderResult{Lines: []string{snapshot}}
+	ctx.Line(snapshot)
 }
 
 func TestSubwordLeft(t *testing.T) {
@@ -848,8 +831,8 @@ func (c *lifecycleComponent) OnDismount() {
 	c.dismountCount++
 }
 
-func (c *lifecycleComponent) Render(ctx Context) RenderResult {
-	return RenderResult{Lines: c.lines}
+func (c *lifecycleComponent) Render(ctx Context) {
+	ctx.Lines(c.lines...)
 }
 
 func TestMountOnFirstRender(t *testing.T) {
@@ -1008,8 +991,8 @@ type interactiveComponent struct {
 	consume bool     // if true, HandleKeyPress returns true
 }
 
-func (c *interactiveComponent) Render(ctx Context) RenderResult {
-	return RenderResult{Lines: c.lines}
+func (c *interactiveComponent) Render(ctx Context) {
+	ctx.Lines(c.lines...)
 }
 
 func (c *interactiveComponent) HandleKeyPress(_ Context, ev uv.KeyPressEvent) bool {
@@ -1147,8 +1130,8 @@ type mouseComponent struct {
 	consumeMouse bool
 }
 
-func (m *mouseComponent) Render(ctx Context) RenderResult {
-	return RenderResult{Lines: m.lines}
+func (m *mouseComponent) Render(ctx Context) {
+	ctx.Lines(m.lines...)
 }
 
 func (m *mouseComponent) HandleMouse(ctx Context, ev MouseEvent) bool {
@@ -1248,10 +1231,9 @@ type markingParent struct {
 	inline Component
 }
 
-func (p *markingParent) Render(ctx Context) RenderResult {
+func (p *markingParent) Render(ctx Context) {
 	inlined := p.RenderChildInline(ctx, p.inline)
-	line := "prefix" + inlined + "suffix"
-	return RenderResult{Lines: []string{line}}
+	ctx.Line("prefix" + inlined + "suffix")
 }
 
 func TestScanMouseZones_StripsMarkers(t *testing.T) {

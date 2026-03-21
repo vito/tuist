@@ -22,8 +22,8 @@ type Label struct {
 	Text string
 }
 
-func (l *Label) Render(ctx tuist.Context) tuist.RenderResult {
-	return tuist.RenderResult{Lines: []string{l.Text}}
+func (l *Label) Render(ctx tuist.Context) {
+	ctx.Line(l.Text)
 }
 
 // Counter increments on each key press, and 'q' quits.
@@ -34,8 +34,8 @@ type Counter struct {
 	focused bool
 }
 
-func (c *Counter) Render(ctx tuist.Context) tuist.RenderResult {
-	return tuist.RenderResult{Lines: []string{countStyle.Render(fmt.Sprintf("%d", c.Count))}}
+func (c *Counter) Render(ctx tuist.Context) {
+	ctx.Line(countStyle.Render(fmt.Sprintf("%d", c.Count)))
 }
 
 var _ tuist.Interactive = (*Counter)(nil)

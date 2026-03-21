@@ -48,30 +48,24 @@ func (s *Spinner) OnMount(ctx Context) {
 	}()
 }
 
-func (s *Spinner) Render(ctx Context) RenderResult {
+func (s *Spinner) Render(ctx Context) {
 	elapsed := time.Since(s.start)
 	idx := int(elapsed/s.interval) % len(s.frames)
 	frame := s.frames[idx]
 	if s.Style != nil {
 		frame = s.Style(frame)
 	}
-	line := frame + " " + s.Label
-	return RenderResult{
-		Lines: []string{line},
-	}
+	ctx.Line(frame + " " + s.Label)
 }
 
 // OffscreenRender returns a static placeholder frame so offscreen
 // spinners don't trigger full redraws on every tick. The placeholder
 // uses the first animation frame, producing stable output that the
 // diff renderer can skip.
-func (s *Spinner) OffscreenRender(ctx Context) RenderResult {
+func (s *Spinner) OffscreenRender(ctx Context) {
 	frame := s.frames[0]
 	if s.Style != nil {
 		frame = s.Style(frame)
 	}
-	line := frame + " " + s.Label
-	return RenderResult{
-		Lines: []string{line},
-	}
+	ctx.Line(frame + " " + s.Label)
 }

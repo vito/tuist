@@ -170,7 +170,7 @@ func (g *grid) navigate(ctx tuist.Context, code rune) bool {
 	return true
 }
 
-func (g *grid) Render(ctx tuist.Context) tuist.RenderResult {
+func (g *grid) Render(ctx tuist.Context) {
 	w := ctx.Width
 	h := ctx.ScreenHeight() - 1 // reserve 1 line for status bar
 
@@ -189,7 +189,7 @@ func (g *grid) Render(ctx tuist.Context) tuist.RenderResult {
 			if idx >= total {
 				break
 			}
-			result := g.RenderChild(cellCtx, g.cells[idx])
+			result := g.RenderChildResult(cellCtx, g.cells[idx])
 			rowCells = append(rowCells, strings.Join(result.Lines, "\n"))
 		}
 		if len(rowCells) == 0 {
@@ -207,7 +207,7 @@ func (g *grid) Render(ctx tuist.Context) tuist.RenderResult {
 	// Status bar.
 	allLines = append(allLines, g.renderStatus(w))
 
-	return tuist.RenderResult{Lines: allLines}
+	ctx.Lines(allLines...)
 }
 
 func (g *grid) renderStatus(w int) string {
@@ -260,7 +260,7 @@ var curStyle = lipgloss.NewStyle().Background(lipgloss.Color("255")).Foreground(
 
 // Render produces the colored rectangle for this cell, including a
 // cursor highlight when the mouse hovers over it.
-func (c *cell) Render(ctx tuist.Context) tuist.RenderResult {
+func (c *cell) Render(ctx tuist.Context) {
 	row := c.index / c.grid.cols
 	col := c.index % c.grid.cols
 	w, h := ctx.Width, ctx.Height
@@ -284,7 +284,7 @@ func (c *cell) Render(ctx tuist.Context) tuist.RenderResult {
 		}
 	}
 
-	return tuist.RenderResult{Lines: lines}
+	ctx.Lines(lines...)
 }
 
 func (c *cell) colors(row, col int) (color.Color, color.Color) {

@@ -149,7 +149,7 @@ type inlineInput struct {
 
 // Render produces the styled inline text for this input. The parent
 // embeds it within a line via [Compo.RenderChildInline].
-func (inp *inlineInput) Render(_ tuist.Context) tuist.RenderResult {
+func (inp *inlineInput) Render(ctx tuist.Context) {
 	var content string
 	if inp.editing {
 		content = inp.renderEdit()
@@ -161,7 +161,7 @@ func (inp *inlineInput) Render(_ tuist.Context) tuist.RenderResult {
 			content = topValueStyle.Render(s)
 		}
 	}
-	return tuist.RenderResult{Lines: []string{content}}
+	ctx.Line(content)
 }
 
 func (inp *inlineInput) renderEdit() string {
@@ -515,7 +515,7 @@ func (f *fractalView) OnMount(ctx tuist.Context) {
 	}
 }
 
-func (f *fractalView) Render(ctx tuist.Context) tuist.RenderResult {
+func (f *fractalView) Render(ctx tuist.Context) {
 	f.renderCount++
 
 	// In bench mode each render advances the frame and immediately
@@ -547,14 +547,6 @@ func (f *fractalView) Render(ctx tuist.Context) tuist.RenderResult {
 
 	maxIter := min(64+frame/10, 256)
 
-	// Reuse line buffer from framework's double-buffer.
-	lines := ctx.Recycle()
-	if cap(lines) < h {
-		lines = make([]string, h)
-	} else {
-		lines = lines[:h]
-	}
-
 	np := len(palette)
 	nr := len(ramp)
 
@@ -579,10 +571,8 @@ func (f *fractalView) Render(ctx tuist.Context) tuist.RenderResult {
 			}
 		}
 		buf.WriteString(resetColor)
-		lines[y] = buf.String()
+		ctx.Line(buf.String())
 	}
-
-	return tuist.RenderResult{Lines: lines}
 }
 
 func mandelbrot(c complex128, maxIter int) int {
@@ -645,7 +635,7 @@ func (c *chromeBar) isEditing() bool {
 	return c.reInput.editing || c.imInput.editing
 }
 
-func (c *chromeBar) Render(ctx tuist.Context) tuist.RenderResult {
+func (c *chromeBar) Render(ctx tuist.Context) {
 	f := c.fractal
 	elapsed := time.Since(c.start).Truncate(time.Second)
 	w := ctx.Width
@@ -694,9 +684,8 @@ func (c *chromeBar) Render(ctx tuist.Context) tuist.RenderResult {
 	right := botPad - left
 	bot := botBarStyle.Render(strings.Repeat(" ", left)) + controls + botBarStyle.Render(strings.Repeat(" ", right))
 
-	return tuist.RenderResult{
-		Lines: []string{top, bot},
-	}
+	ctx.Line(top)
+	ctx.Line(bot)
 }
 
 // ── Frame log ──────────────────────────────────────────────────────────────
@@ -729,8 +718,8 @@ func (fl *frameLog) appendFrame(frame int, re, im, scale float64) {
 	fl.Update()
 }
 
-func (fl *frameLog) Render(ctx tuist.Context) tuist.RenderResult {
-	return tuist.RenderResult{Lines: fl.lines}
+func (fl *frameLog) Render(ctx tuist.Context) {
+	ctx.Lines(fl.lines...)
 }
 
 // ── Notification bubble ────────────────────────────────────────────────────
@@ -748,7 +737,7 @@ var bubbleStyle = lipgloss.NewStyle().
 	BorderForeground(lipgloss.Color("229")).
 	Padding(0, 1)
 
-func (n *notificationBubble) Render(ctx tuist.Context) tuist.RenderResult {
+func (n *notificationBubble) Render(ctx tuist.Context) {
 	rendered := bubbleStyle.Render(n.msg)
-	return tuist.RenderResult{Lines: strings.Split(rendered, "\n")}
+	ctx.Lines(strings.Split(rendered, "\n")...)
 }

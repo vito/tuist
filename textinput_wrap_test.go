@@ -53,7 +53,7 @@ func TestTextInputRenderWordWrap(t *testing.T) {
 
 	ctx := Context{Context: context.Background(), Width: 15}
 	// prompt "> " is 2 cols wide, so 13 cols for text.
-	result := ti.Render(ctx)
+	result := renderComponent(ti, ctx)
 
 	// Should have multiple lines.
 	require.Greater(t, len(result.Lines), 1, "expected wrapping, got: %v", result.Lines)
@@ -76,7 +76,7 @@ func TestTextInputRenderNoWrapWhenFits(t *testing.T) {
 	ti.SetFocused(Context{}, true)
 
 	ctx := Context{Context: context.Background(), Width: 80}
-	result := ti.Render(ctx)
+	result := renderComponent(ti, ctx)
 
 	assert.Len(t, result.Lines, 1)
 	assert.Equal(t, "> hi", result.Lines[0])
@@ -91,7 +91,7 @@ func TestTextInputRenderNoWrapZeroWidth(t *testing.T) {
 	ti.SetFocused(Context{}, true)
 
 	ctx := Context{Context: context.Background(), Width: 0}
-	result := ti.Render(ctx)
+	result := renderComponent(ti, ctx)
 
 	// With zero width, no wrapping should occur.
 	assert.Len(t, result.Lines, 1)
@@ -106,7 +106,7 @@ func TestTextInputCursorPositionInWrappedLine(t *testing.T) {
 	ti.SetFocused(Context{}, true)
 
 	ctx := Context{Context: context.Background(), Width: 10}
-	result := ti.Render(ctx)
+	result := renderComponent(ti, ctx)
 
 	require.Equal(t, 2, len(result.Lines), "lines: %v", result.Lines)
 	require.NotNil(t, result.Cursor)
@@ -123,7 +123,7 @@ func TestTextInputWrappedMultiline(t *testing.T) {
 	ti.CursorEnd()
 
 	ctx := Context{Context: context.Background(), Width: 12}
-	result := ti.Render(ctx)
+	result := renderComponent(ti, ctx)
 
 	// prompt=2, avail=10
 	// line 0: "hello " (6 fits), then "world foo" wraps: "world foo" (9 fits in 10)

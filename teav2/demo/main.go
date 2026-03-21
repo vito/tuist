@@ -235,14 +235,14 @@ func (b *borderBox) style() lipgloss.Style {
 		Padding(0, 1)
 }
 
-func (b *borderBox) Render(ctx tuist.Context) tuist.RenderResult {
+func (b *borderBox) Render(ctx tuist.Context) {
 	s := b.style()
 	innerWidth := ctx.Width - s.GetHorizontalFrameSize()
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
 
-	childResult := b.RenderChild(ctx.Resize(innerWidth, b.height), b.child)
+	childResult := b.RenderChildResult(ctx.Resize(innerWidth, b.height), b.child)
 
 	// Join child lines and render inside the styled border.
 	content := lipgloss.JoinVertical(lipgloss.Left, childResult.Lines...)
@@ -251,7 +251,7 @@ func (b *borderBox) Render(ctx tuist.Context) tuist.RenderResult {
 		Height(b.height).
 		Render(content)
 
-	return tuist.RenderResult{Lines: strings.Split(rendered, "\n")}
+	ctx.Lines(strings.Split(rendered, "\n")...)
 }
 
 func (b *borderBox) HandleKeyPress(ctx tuist.Context, ev uv.KeyPressEvent) bool {

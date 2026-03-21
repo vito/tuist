@@ -20,8 +20,11 @@ type text struct {
 	Cursor *tuist.CursorPos
 }
 
-func (s *text) Render(ctx tuist.Context) tuist.RenderResult {
-	return tuist.RenderResult{Lines: s.Lines, Cursor: s.Cursor}
+func (s *text) Render(ctx tuist.Context) {
+	ctx.Lines(s.Lines...)
+	if s.Cursor != nil {
+		ctx.SetCursor(s.Cursor.Row, s.Cursor.Col)
+	}
 }
 
 // borderedBox renders a lipgloss-bordered box that respects ctx.Height.
@@ -31,7 +34,7 @@ type borderedBox struct {
 	Lines []string
 }
 
-func (b *borderedBox) Render(ctx tuist.Context) tuist.RenderResult {
+func (b *borderedBox) Render(ctx tuist.Context) {
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("63"))
@@ -51,7 +54,7 @@ func (b *borderedBox) Render(ctx tuist.Context) tuist.RenderResult {
 	}
 
 	box := borderStyle.Width(innerW).Render(strings.Join(inner, "\n"))
-	return tuist.RenderResult{Lines: strings.Split(box, "\n")}
+	ctx.Lines(strings.Split(box, "\n")...)
 }
 
 // progressBar renders a text-based progress bar with lipgloss styling.
@@ -62,7 +65,7 @@ type progressBar struct {
 	Done  int
 }
 
-func (p *progressBar) Render(ctx tuist.Context) tuist.RenderResult {
+func (p *progressBar) Render(ctx tuist.Context) {
 	barWidth := ctx.Width - len(p.Label) - 5
 	if barWidth < 5 {
 		barWidth = 5
@@ -80,17 +83,17 @@ func (p *progressBar) Render(ctx tuist.Context) tuist.RenderResult {
 
 	pct := fmt.Sprintf("%3d%%", 100*p.Done/p.Total)
 	line := p.Label + " " + bar + " " + pct
-	return tuist.RenderResult{Lines: []string{line}}
+	ctx.Line(line)
 }
 
 // callbackComponent renders via a function.
 type callbackComponent struct {
 	tuist.Compo
-	fn func(tuist.Context) tuist.RenderResult
+	fn func(tuist.Context)
 }
 
-func (c *callbackComponent) Render(ctx tuist.Context) tuist.RenderResult {
-	return c.fn(ctx)
+func (c *callbackComponent) Render(ctx tuist.Context) {
+	c.fn(ctx)
 }
 
 // ── basic rendering ────────────────────────────────────────────────────────
@@ -727,7 +730,7 @@ func TestGolden_OverlayBorderedBoxWidthMismatch(t *testing.T) {
 	}
 	tui.AddChild(&text{Lines: bgLines})
 
-	overlay := &callbackComponent{fn: func(ctx tuist.Context) tuist.RenderResult {
+	overlay := &callbackComponent{fn: func(ctx tuist.Context) {
 		borderStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("63"))
@@ -754,7 +757,7 @@ func TestGolden_OverlayBorderedBoxWidthMismatch(t *testing.T) {
 
 		inner := strings.Join(lines, "\n")
 		box := borderStyle.Width(ctx.Width).Render(inner)
-		return tuist.RenderResult{Lines: strings.Split(box, "\n")}
+		ctx.Lines(strings.Split(box, "\n")...)
 	}}
 	tui.ShowOverlay(overlay, &tuist.OverlayOptions{
 		Width:     tuist.SizeAbs(35),
