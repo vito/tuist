@@ -1471,15 +1471,10 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 		return
 	}
 
-	// First change above previous viewport.
+	// First change above previous viewport → full redraw.
+	// (When sync output is unavailable, content that overflows the viewport
+	// is rendered on the alt screen, so this path is only reached with sync.)
 	if dr.firstChanged < t.previousViewportTop {
-		if !t.hasSyncOutput() {
-			// Without synchronized output a full clear+repaint would
-			// flicker. Instead, repaint only the visible region.
-			t.writeVisibleRepaint(width, height, newLines, cursorPos, stats, &dr, diffStart)
-			emitStats()
-			return
-		}
 		stats.FullRedrawReason = fmt.Sprintf(
 			"above_viewport:first=%d,vpTop=%d,prevLines=%d,newLines=%d,height=%d",
 			dr.firstChanged, t.previousViewportTop, len(t.previousLines), len(newLines), height,
@@ -1902,110 +1897,6 @@ func (t *TUI) positionHardwareCursorAltScreen(pos *CursorPos, viewportTop, heigh
 			t.cursorHidden = true
 		}
 	}
-}
-
-// writeVisibleRepaint repaints only the lines within the current viewport.
-// Used when content changes above the viewport and synchronized output is
-// not available (so a full clear+repaint would flicker).
-func (t *TUI) writeVisibleRepaint(width, height int, newLines []string, cursorPos *CursorPos, stats *RenderStats, dr *diffResult, diffStart time.Time) {
-	// When content shrinks, accept the new line count so viewport
-	// math is based on actual content, not stale history.
-	ml := len(newLines)
-	if t.maxLinesRendered > ml {
-		t.maxLinesRendered = ml
-	}
-	viewportTop := max(0, ml-height)
-	viewportBottom := min(viewportTop+height-1, len(newLines)-1)
-
-	stats.FullRedrawReason = fmt.Sprintf(
-		"visible_repaint(no_sync):first=%d,vpTop=%d,vpBot=%d",
-		dr.firstChanged, viewportTop, viewportBottom,
-	)
-
-	buf := &t.writeBuf
-	buf.Reset()
-
-	// Move cursor to the top of the visible region on screen.
-	// The hardware cursor is at some absolute row; we need to get
-	// to the screen position corresponding to viewportTop.
-	hardwareCursorRow := t.hardwareCursorRow
-	prevViewportTop := t.previousViewportTop
-
-	// Screen position of hardware cursor relative to old viewport.
-	currentScreen := hardwareCursorRow - prevViewportTop
-
-	// We want screen row 0 of the new viewport. Since the terminal
-	// only lets us move relative to the cursor, compute the delta
-	// in screen coordinates. The new viewport may be at a different
-	// absolute position than the old one.
-	//
-	// Absolute row of the new viewport top on screen:
-	//   The terminal's visible area hasn't scrolled (no \r\n emitted),
-	//   so screen row 0 is still at absolute row prevViewportTop.
-	//   We want to land at absolute row viewportTop.
-	newScreen := viewportTop - prevViewportTop
-	delta := newScreen - currentScreen
-	buf.WriteString(cursorVertical(delta))
-	buf.WriteString("\r")
-
-	// Repaint each visible line.
-	linesRepainted := 0
-	prevLineCount := len(t.previousLines)
-	for i := viewportTop; i <= viewportBottom; i++ {
-		if i > viewportTop {
-			if i < prevLineCount {
-				buf.WriteString(cursorDown(1))
-				buf.WriteString("\r")
-			} else {
-				buf.WriteString("\r\n")
-			}
-		}
-		buf.WriteString(escClearLine)
-		if i < len(newLines) {
-			buf.WriteString(newLines[i])
-			buf.WriteString(segmentReset)
-		}
-		linesRepainted++
-	}
-
-	finalCursorRow := viewportBottom
-
-	// Clear any stale lines below the new content that are still
-	// on screen (visible within the old viewport).
-	prevViewportBottom := prevViewportTop + height - 1
-	staleStart := viewportBottom + 1
-	if staleStart <= prevViewportBottom && staleStart < prevLineCount {
-		staleEnd := min(prevViewportBottom, prevLineCount-1)
-		for i := staleStart; i <= staleEnd; i++ {
-			buf.WriteString(cursorDown(1))
-			buf.WriteString("\r")
-			buf.WriteString(escClearLine)
-		}
-		cleared := staleEnd - staleStart + 1
-		buf.WriteString(cursorUp(cleared))
-	}
-
-	stats.DiffTime = time.Since(diffStart)
-	stats.LinesRepainted = linesRepainted
-	stats.CacheHits = len(newLines) - linesRepainted
-	stats.FirstChangedLine = viewportTop
-	stats.LastChangedLine = viewportBottom
-	stats.BytesWritten = buf.Len()
-
-	writeStart := time.Now()
-	t.terminal.Write(buf.Bytes())
-	stats.WriteTime = time.Since(writeStart)
-
-	t.cursorRow = max(0, len(newLines)-1)
-	t.hardwareCursorRow = finalCursorRow
-	t.hardwareCursorCol = 0
-	t.maxLinesRendered = ml
-	t.previousViewportTop = viewportTop
-
-	t.positionHardwareCursor(cursorPos, len(newLines))
-
-	t.previousLines = newLines
-	t.previousWidth = width
 }
 
 // dumpFrame writes the full content and visible screen to numbered files
