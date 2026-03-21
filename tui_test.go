@@ -901,6 +901,48 @@ func TestSyncOutputSequencesOmittedWhenUnsupported(t *testing.T) {
 	assert.Contains(t, out, "world")
 }
 
+func TestNoSyncOutputShrinkClearsStaleLines(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+
+	// Start with 10 lines.
+	lines := make([]string, 10)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	s := &staticComponent{lines: lines}
+	tui.AddChild(s)
+	tui.RenderOnce()
+
+	initialRedraws := tui.FullRedraws()
+
+	// Shrink to 3 lines.
+	s.lines = []string{"a", "b", "c"}
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	// Should NOT trigger a full redraw (would flicker).
+	assert.Equal(t, initialRedraws, tui.FullRedraws(),
+		"shrink should not trigger full redraw without sync output")
+
+	// Subsequent update should work normally (no cascading viewport errors).
+	s.lines = []string{"x", "y", "z"}
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	assert.Equal(t, initialRedraws, tui.FullRedraws(),
+		"frame after shrink should use differential rendering")
+	out := term.written.String()
+	assert.Contains(t, out, "x")
+	assert.NotContains(t, out, escSyncBegin)
+}
+
 // ── Lifecycle tests ────────────────────────────────────────────────────────
 
 // lifecycleComponent tracks mount/dismount calls.

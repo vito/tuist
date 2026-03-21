@@ -1344,8 +1344,9 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 	if reason, clear := t.needsFullRedraw(newLines); reason != "" {
 		if !t.hasSyncOutput() && clear {
 			// Without sync output, a clear+repaint would flicker.
-			// Fall through to differential/visible-region rendering.
-			// We still need the diff to see what changed.
+			// Reset maxLinesRendered so viewport math is correct,
+			// then fall through to differential rendering.
+			t.maxLinesRendered = len(newLines)
 		} else {
 			stats.FullRedrawReason = reason
 			t.writeFullRedraw(width, height, newLines, cursorPos, stats, clear)
@@ -1670,8 +1671,12 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 // Used when content changes above the viewport and synchronized output is
 // not available (so a full clear+repaint would flicker).
 func (t *TUI) writeVisibleRepaint(width, height int, newLines []string, cursorPos *CursorPos, stats *RenderStats, dr *diffResult, diffStart time.Time) {
-	// Compute the new viewport.
-	ml := max(t.maxLinesRendered, len(newLines))
+	// When content shrinks, accept the new line count so viewport
+	// math is based on actual content, not stale history.
+	ml := len(newLines)
+	if t.maxLinesRendered > ml {
+		t.maxLinesRendered = ml
+	}
 	viewportTop := max(0, ml-height)
 	viewportBottom := min(viewportTop+height-1, len(newLines)-1)
 
@@ -1683,36 +1688,35 @@ func (t *TUI) writeVisibleRepaint(width, height int, newLines []string, cursorPo
 	buf := &t.writeBuf
 	buf.Reset()
 
-	// Move cursor to the top of the visible region.
+	// Move cursor to the top of the visible region on screen.
+	// The hardware cursor is at some absolute row; we need to get
+	// to the screen position corresponding to viewportTop.
 	hardwareCursorRow := t.hardwareCursorRow
 	prevViewportTop := t.previousViewportTop
+
+	// Screen position of hardware cursor relative to old viewport.
 	currentScreen := hardwareCursorRow - prevViewportTop
-	// We want to move to screen row 0 of the new viewport.
-	// But the cursor is at screen position currentScreen relative to
-	// the old viewport. We need to get to the line viewportTop.
-	targetScreen := 0
-	if viewportTop <= hardwareCursorRow {
-		// Target is above or at current position — move up.
-		delta := targetScreen - currentScreen
-		buf.WriteString(cursorVertical(delta))
-	} else {
-		// Target is below current position — scroll down.
-		moveToBottom := height - 1 - currentScreen
-		buf.WriteString(cursorDown(moveToBottom))
-		scroll := viewportTop - prevViewportTop - height + 1
-		if scroll > 0 {
-			for range scroll {
-				buf.WriteString("\r\n")
-			}
-		}
-	}
+
+	// We want screen row 0 of the new viewport. Since the terminal
+	// only lets us move relative to the cursor, compute the delta
+	// in screen coordinates. The new viewport may be at a different
+	// absolute position than the old one.
+	//
+	// Absolute row of the new viewport top on screen:
+	//   The terminal's visible area hasn't scrolled (no \r\n emitted),
+	//   so screen row 0 is still at absolute row prevViewportTop.
+	//   We want to land at absolute row viewportTop.
+	newScreen := viewportTop - prevViewportTop
+	delta := newScreen - currentScreen
+	buf.WriteString(cursorVertical(delta))
 	buf.WriteString("\r")
 
 	// Repaint each visible line.
 	linesRepainted := 0
+	prevLineCount := len(t.previousLines)
 	for i := viewportTop; i <= viewportBottom; i++ {
 		if i > viewportTop {
-			if i < len(t.previousLines) {
+			if i < prevLineCount {
 				buf.WriteString(cursorDown(1))
 				buf.WriteString("\r")
 			} else {
@@ -1728,6 +1732,21 @@ func (t *TUI) writeVisibleRepaint(width, height int, newLines []string, cursorPo
 	}
 
 	finalCursorRow := viewportBottom
+
+	// Clear any stale lines below the new content that are still
+	// on screen (visible within the old viewport).
+	prevViewportBottom := prevViewportTop + height - 1
+	staleStart := viewportBottom + 1
+	if staleStart <= prevViewportBottom && staleStart < prevLineCount {
+		staleEnd := min(prevViewportBottom, prevLineCount-1)
+		for i := staleStart; i <= staleEnd; i++ {
+			buf.WriteString(cursorDown(1))
+			buf.WriteString("\r")
+			buf.WriteString(escClearLine)
+		}
+		cleared := staleEnd - staleStart + 1
+		buf.WriteString(cursorUp(cleared))
+	}
 
 	stats.DiffTime = time.Since(diffStart)
 	stats.LinesRepainted = linesRepainted
