@@ -834,7 +834,7 @@ func TestSyncOutputDetectedFromDECRPM(t *testing.T) {
 	assert.False(t, tui.HasSyncOutput())
 }
 
-func TestNoSyncOutputSkipsFullRedrawForAboveViewport(t *testing.T) {
+func TestNoSyncOutputUsesAltScreen(t *testing.T) {
 	tui, term := newTestTUI(40, 5)
 	tui.SetSyncOutput(false)
 
@@ -846,24 +846,19 @@ func TestNoSyncOutputSkipsFullRedrawForAboveViewport(t *testing.T) {
 	s := &staticComponent{lines: lines}
 	tui.AddChild(s)
 	tui.RenderOnce()
-	initialRedraws := tui.FullRedraws()
 
-	// Change a line above the viewport. Without sync output, this
-	// should NOT trigger a full redraw — only a visible repaint.
+	// Alt screen should have been entered on first render.
+	assert.True(t, tui.altScreen, "alt screen should be active when sync output is off")
+
+	// Change a line above the viewport. On alt screen, the visible
+	// content (last 5 lines) didn't change, so no terminal writes.
 	s.lines[0] = "CHANGED"
 	s.Update()
 	term.reset()
 	tui.RenderOnce()
 
-	assert.Equal(t, initialRedraws, tui.FullRedraws(),
-		"above-viewport change should not trigger full redraw without sync output")
-
-	// The visible region should still be written.
 	out := term.written.String()
-	assert.NotEmpty(t, out, "visible repaint should produce output")
-	// Should NOT contain sync sequences.
-	assert.NotContains(t, out, escSyncBegin)
-	assert.NotContains(t, out, escSyncEnd)
+	assert.Empty(t, out, "above-viewport change should produce no output on alt screen")
 }
 
 func TestSyncOutputSequencesOmittedWhenUnsupported(t *testing.T) {

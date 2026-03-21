@@ -632,7 +632,7 @@ func (t *TUI) Start() error {
 		t.syncOutputSupported = false
 		t.syncOutputQueryState = 2 // answered (overridden)
 		t.mu.Unlock()
-		t.enterAltScreen()
+		// Alt screen will be entered on the first render.
 	} else if v == "1" {
 		t.mu.Lock()
 		t.syncOutputSupported = true
@@ -810,9 +810,10 @@ func (t *TUI) dispatchEvent(ev uv.Event) {
 			t.syncOutputSupported = supported
 			t.syncOutputQueryState = 2 // answered
 			t.mu.Unlock()
-			if !supported && !t.altScreen {
-				t.enterAltScreen()
-			}
+			// Alt screen enter/leave is handled at render time based on
+			// hasSyncOutput(). Just request a re-render to pick up the
+			// change.
+			t.RequestRender(false)
 		}
 		return
 	case uv.KeyboardEnhancementsEvent:
@@ -1348,6 +1349,18 @@ func (t *TUI) doRender() {
 	}
 
 	// Choose rendering strategy and write to terminal.
+	// Use alt screen when synchronized output is not available AND content
+	// exceeds the viewport. While content fits on screen, normal scrollback
+	// works fine. Once content overflows, the normal renderer suffers from
+	// viewport drift and stale lines without sync — switch to alt screen.
+	if !t.hasSyncOutput() {
+		if !t.altScreen && len(displayLines) > height {
+			t.enterAltScreen()
+		}
+	} else if t.altScreen {
+		// Sync became available (e.g. DECRPM response arrived) — leave alt.
+		t.leaveAltScreen()
+	}
 	if t.altScreen {
 		t.applyFrameAltScreen(width, height, displayLines, cursorPos, compStats, &stats, totalStart, &memBefore)
 	} else {
