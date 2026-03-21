@@ -185,8 +185,9 @@ type TUI struct {
 
 	fullRedrawCount      int
 	kittyKeyboard        bool
-	syncOutputSupported  bool // true until DECRPM says otherwise
+	syncOutputSupported  bool  // true until DECRPM says otherwise
 	syncOutputQueryState uint8 // 0=unsent, 1=sent, 2=answered
+	altScreen            bool  // true when using alt screen (no sync output)
 
 	// ── UI-goroutine-only state (no lock needed) ──
 
@@ -361,6 +362,32 @@ func (t *TUI) SetSyncOutput(supported bool) {
 	t.syncOutputSupported = supported
 	t.syncOutputQueryState = 2 // treat as answered
 	t.mu.Unlock()
+}
+
+// enterAltScreen switches to the alternate screen buffer. Used when
+// synchronized output is not available, since alt screen gives us
+// absolute cursor positioning and eliminates stale-line artifacts.
+func (t *TUI) enterAltScreen() {
+	t.terminal.WriteString(escAltScreenEnter)
+	t.terminal.WriteString(escCursorHome)
+	t.altScreen = true
+	// Reset rendering state — alt screen is a blank slate.
+	t.previousLines = nil
+	t.previousWidth = -1
+	t.cursorRow = 0
+	t.hardwareCursorRow = 0
+	t.hardwareCursorCol = 0
+	t.maxLinesRendered = 0
+	t.previousViewportTop = 0
+}
+
+// leaveAltScreen switches back to the normal screen buffer.
+func (t *TUI) leaveAltScreen() {
+	if !t.altScreen {
+		return
+	}
+	t.terminal.WriteString(escAltScreenLeave)
+	t.altScreen = false
 }
 
 // HasSyncOutput reports whether the terminal supports synchronized output
@@ -596,6 +623,7 @@ func (t *TUI) Start() error {
 		t.syncOutputSupported = false
 		t.syncOutputQueryState = 2 // answered (overridden)
 		t.mu.Unlock()
+		t.enterAltScreen()
 	} else if v == "1" {
 		t.mu.Lock()
 		t.syncOutputSupported = true
@@ -658,7 +686,11 @@ func (t *TUI) stop(clear bool) {
 		t.mouseRefCount = 0
 	}
 
-	if len(prev) > 0 {
+	if t.altScreen {
+		// Leave alt screen — the normal screen buffer is restored
+		// automatically by the terminal.
+		t.leaveAltScreen()
+	} else if len(prev) > 0 {
 		if clear {
 			// Move cursor to the top of the TUI output and erase
 			// everything below so the executed command starts clean.
@@ -769,6 +801,9 @@ func (t *TUI) dispatchEvent(ev uv.Event) {
 			t.syncOutputSupported = supported
 			t.syncOutputQueryState = 2 // answered
 			t.mu.Unlock()
+			if !supported && !t.altScreen {
+				t.enterAltScreen()
+			}
 		}
 		return
 	case uv.KeyboardEnhancementsEvent:
@@ -1145,6 +1180,10 @@ const (
 	escMouseAllMotionDisable = "\x1b[?1003l"
 	escMouseSGREnable        = "\x1b[?1006h" // SGR extended encoding
 	escMouseSGRDisable       = "\x1b[?1006l"
+
+	// Alternate screen buffer.
+	escAltScreenEnter = "\x1b[?1049h"
+	escAltScreenLeave = "\x1b[?1049l"
 )
 
 // hasSyncOutput returns whether the terminal supports synchronized output.
@@ -1171,6 +1210,11 @@ func (t *TUI) syncEnd() string {
 		return escSyncEnd
 	}
 	return ""
+}
+
+// cursorTo returns an escape sequence moving the cursor to row, col (1-indexed).
+func cursorTo(row, col int) string {
+	return fmt.Sprintf("\x1b[%d;%dH", row, col)
 }
 
 // cursorUp returns an escape sequence moving the cursor up n rows.
@@ -1290,7 +1334,11 @@ func (t *TUI) doRender() {
 	displayLines := t.scanMouseZones(newLines)
 
 	// Choose rendering strategy and write to terminal.
-	t.applyFrame(width, height, displayLines, cursorPos, compStats, &stats, totalStart, &memBefore)
+	if t.altScreen {
+		t.applyFrameAltScreen(width, height, displayLines, cursorPos, compStats, &stats, totalStart, &memBefore)
+	} else {
+		t.applyFrame(width, height, displayLines, cursorPos, compStats, &stats, totalStart, &memBefore)
+	}
 }
 
 // renderFrame renders the component tree and composites overlays, producing
@@ -1560,6 +1608,12 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 		stats.DiffTime = time.Since(diffStart)
 	}
 
+	// Shrink maxLinesRendered when trailing lines are cleared so the
+	// viewport is computed from the actual content size.
+	if len(t.previousLines) > len(newLines) {
+		t.maxLinesRendered = len(newLines)
+	}
+
 	t.positionHardwareCursor(cursorPos, len(newLines))
 	t.previousLines = newLines
 	t.previousWidth = width
@@ -1665,7 +1719,14 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 	stats.WriteTime = time.Since(writeStart)
 
 	cr := max(0, len(newLines)-1)
-	ml := max(t.maxLinesRendered, len(newLines))
+	// If trailing lines were cleared, shrink maxLinesRendered so the
+	// viewport is computed from the actual content size.
+	ml := t.maxLinesRendered
+	if prevLineCount > len(newLines) {
+		ml = len(newLines)
+	} else {
+		ml = max(ml, len(newLines))
+	}
 
 	t.cursorRow = cr
 	t.hardwareCursorRow = finalCursorRow
@@ -1677,6 +1738,143 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 
 	t.previousLines = newLines
 	t.previousWidth = width
+}
+
+// applyFrameAltScreen renders on the alternate screen buffer using absolute
+// cursor positioning. Only the visible slice of content is written, and only
+// lines that differ from the previous frame are updated.
+func (t *TUI) applyFrameAltScreen(width, height int, newLines []string, cursorPos *CursorPos, compStats []ComponentStat, stats *RenderStats, totalStart time.Time, memBefore *runtime.MemStats) {
+	emitStats := func() {
+		t.emitDebugStats(t.debugWriter, stats, compStats, totalStart, memBefore)
+	}
+
+	diffStart := time.Now()
+
+	// Compute the visible slice.
+	viewportTop := max(0, len(newLines)-height)
+	viewportEnd := min(viewportTop+height, len(newLines))
+	visible := newLines[viewportTop:viewportEnd]
+
+	// Compute the previous visible slice for diffing.
+	prevViewportTop := t.previousViewportTop
+	prevViewportEnd := min(prevViewportTop+height, len(t.previousLines))
+	var prevVisible []string
+	if prevViewportTop < len(t.previousLines) {
+		prevVisible = t.previousLines[prevViewportTop:prevViewportEnd]
+	}
+
+	buf := &t.writeBuf
+	buf.Reset()
+
+	linesRepainted := 0
+	firstChanged := -1
+	lastChanged := -1
+
+	for i, line := range visible {
+		// Check if this line differs from the previous frame.
+		var prevLine string
+		if i < len(prevVisible) {
+			prevLine = prevVisible[i]
+		}
+		if line == prevLine {
+			continue
+		}
+
+		if firstChanged == -1 {
+			firstChanged = i
+		}
+		lastChanged = i
+
+		// Absolute position: row i+1 (1-indexed), column 1.
+		buf.WriteString(cursorTo(i+1, 1))
+		buf.WriteString(escClearLine)
+		buf.WriteString(line)
+		buf.WriteString(segmentReset)
+		linesRepainted++
+	}
+
+	// Clear any leftover lines below the content.
+	for i := len(visible); i < height; i++ {
+		var prevLine string
+		if i < len(prevVisible) {
+			prevLine = prevVisible[i]
+		}
+		if prevLine == "" {
+			continue
+		}
+		buf.WriteString(cursorTo(i+1, 1))
+		buf.WriteString(escClearLine)
+	}
+
+	stats.DiffTime = time.Since(diffStart)
+	stats.LinesRepainted = linesRepainted
+	stats.CacheHits = len(visible) - linesRepainted
+	stats.TotalLines = len(newLines)
+	if firstChanged >= 0 {
+		stats.FirstChangedLine = viewportTop + firstChanged
+		stats.LastChangedLine = viewportTop + lastChanged
+	} else {
+		stats.FirstChangedLine = -1
+		stats.LastChangedLine = -1
+	}
+	stats.BytesWritten = buf.Len()
+
+	if buf.Len() > 0 {
+		writeStart := time.Now()
+		t.terminal.Write(buf.Bytes())
+		stats.WriteTime = time.Since(writeStart)
+	}
+
+	t.maxLinesRendered = len(newLines)
+	t.previousViewportTop = viewportTop
+	t.previousLines = newLines
+
+	// Position hardware cursor for the component's cursor (if any).
+	t.positionHardwareCursorAltScreen(cursorPos, viewportTop, height)
+
+	emitStats()
+}
+
+// positionHardwareCursorAltScreen positions the cursor on the alt screen
+// using absolute coordinates.
+func (t *TUI) positionHardwareCursorAltScreen(pos *CursorPos, viewportTop, height int) {
+	if pos == nil {
+		if !t.cursorHidden {
+			t.terminal.HideCursor()
+			t.cursorHidden = true
+		}
+		return
+	}
+
+	// Convert content row to screen row.
+	screenRow := pos.Row - viewportTop
+	if screenRow < 0 || screenRow >= height {
+		// Cursor is offscreen.
+		if !t.cursorHidden {
+			t.terminal.HideCursor()
+			t.cursorHidden = true
+		}
+		return
+	}
+
+	col := max(0, pos.Col) + 1 // 1-indexed
+	row := screenRow + 1       // 1-indexed
+
+	t.terminal.WriteString(cursorTo(row, col))
+	t.hardwareCursorRow = pos.Row
+	t.hardwareCursorCol = col
+
+	if t.showHardwareCursor {
+		if t.cursorHidden {
+			t.terminal.ShowCursor()
+			t.cursorHidden = false
+		}
+	} else {
+		if !t.cursorHidden {
+			t.terminal.HideCursor()
+			t.cursorHidden = true
+		}
+	}
 }
 
 // writeVisibleRepaint repaints only the lines within the current viewport.

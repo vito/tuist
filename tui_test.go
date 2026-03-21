@@ -885,6 +885,79 @@ func TestSyncOutputSequencesOmittedWhenUnsupported(t *testing.T) {
 	assert.Contains(t, out, "world")
 }
 
+func TestAltScreenRendering(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	// Force alt screen mode.
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+	tui.enterAltScreen()
+
+	s := &staticComponent{lines: []string{"hello", "world"}}
+	tui.AddChild(s)
+	term.reset()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	assert.Contains(t, out, "hello")
+	assert.Contains(t, out, "world")
+	// No sync sequences on alt screen.
+	assert.NotContains(t, out, escSyncBegin)
+}
+
+func TestAltScreenShrinkNoArtifacts(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+	tui.enterAltScreen()
+
+	// Start with 5 lines filling the screen.
+	s := &staticComponent{lines: []string{"a", "b", "c", "d", "e"}}
+	tui.AddChild(s)
+	tui.RenderOnce()
+
+	// Shrink to 2 lines.
+	s.lines = []string{"x", "y"}
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	assert.Contains(t, out, "x")
+	assert.Contains(t, out, "y")
+	// No full redraw counter should be incremented.
+	assert.Equal(t, 0, tui.FullRedraws())
+}
+
+func TestAltScreenDiffOnlyChangedLines(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+	tui.enterAltScreen()
+
+	s := &staticComponent{lines: []string{"stable", "changing"}}
+	tui.AddChild(s)
+	tui.RenderOnce()
+
+	s.lines = []string{"stable", "CHANGED"}
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	// Should contain the changed line but not the stable one.
+	assert.Contains(t, out, "CHANGED")
+	assert.NotContains(t, out, "stable")
+}
+
 func TestNoSyncOutputShrinkClearsStaleLines(t *testing.T) {
 	tui, term := newTestTUI(40, 5)
 	tui.SetSyncOutput(false)
