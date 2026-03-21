@@ -643,7 +643,7 @@ func (t *TUI) Start() error {
 		// is handled in dispatchEvent. Until we hear back, we assume
 		// sync output is NOT supported — terminals that don't
 		// implement DECRQM won't reply at all.
-		t.terminal.WriteString(ansi.RequestSynchronizedOutputMode)
+		t.terminal.WriteString(ansi.RequestModeSynchronizedOutput)
 		t.mu.Lock()
 		t.syncOutputQueryState = 1 // sent
 		t.mu.Unlock()
@@ -782,7 +782,7 @@ func (t *TUI) startInputReader(ctx context.Context) *io.PipeWriter {
 	pr, pw := io.Pipe()
 	reader := uv.NewTerminalReader(pr, os.Getenv("TERM"))
 	go func() {
-		defer pr.Close()
+		defer pr.Close() //nolint:errcheck
 		// StreamEvents blocks until ctx is cancelled or the reader
 		// hits an error (e.g. pipe closed). It handles escape
 		// timeouts, bracketed paste buffering, terminfo lookups, etc.
@@ -804,7 +804,7 @@ func (t *TUI) dispatchEvent(ev uv.Event) {
 
 	switch e := ev.(type) {
 	case uv.ModeReportEvent:
-		if e.Mode == ansi.SynchronizedOutputMode {
+		if e.Mode == ansi.ModeSynchronizedOutput {
 			supported := e.Value.IsSet() || e.Value.IsReset()
 			t.mu.Lock()
 			t.syncOutputSupported = supported

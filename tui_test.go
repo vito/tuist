@@ -821,14 +821,14 @@ func TestSyncOutputDetectedFromDECRPM(t *testing.T) {
 
 	// Terminal supports sync output (mode is set or reset = recognized).
 	tui.dispatchEvent(uv.ModeReportEvent{
-		Mode:  ansi.SynchronizedOutputMode,
+		Mode:  ansi.ModeSynchronizedOutput,
 		Value: ansi.ModeReset, // recognized but currently off
 	})
 	assert.True(t, tui.HasSyncOutput())
 
 	// Terminal does not recognize mode 2026.
 	tui.dispatchEvent(uv.ModeReportEvent{
-		Mode:  ansi.SynchronizedOutputMode,
+		Mode:  ansi.ModeSynchronizedOutput,
 		Value: ansi.ModeNotRecognized,
 	})
 	assert.False(t, tui.HasSyncOutput())

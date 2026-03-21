@@ -83,20 +83,6 @@ func (t *TextInput) CursorScreenCol() int {
 	return col
 }
 
-// cursorRowCol computes the (row, col) of the cursor within the value,
-// treating '\n' as line separators (without wrapping).
-func (t *TextInput) cursorRowCol() (row, col int) {
-	for i := 0; i < t.cursor && i < len(t.value); i++ {
-		if t.value[i] == '\n' {
-			row++
-			col = 0
-		} else {
-			col++
-		}
-	}
-	return
-}
-
 // wrappedCursorRowCol computes the (row, col) of the cursor in the
 // wrapped output, accounting for word wrapping at lastRenderWidth.
 // col includes the prompt width.
@@ -456,10 +442,6 @@ func (t *TextInput) InsertRune(r rune) {
 	newVal = append(newVal, t.value[t.cursor:]...)
 	t.value = newVal
 	t.cursor++
-}
-
-func (t *TextInput) hasMultipleLines() bool {
-	return slices.Contains(t.value, '\n')
 }
 
 // lineStart returns the index of the start of the current line.
