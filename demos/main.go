@@ -146,11 +146,10 @@ var (
 	selHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 )
 
-func (s *selectorView) Render(_ tuist.Context) tuist.RenderResult {
-	var lines []string
-	lines = append(lines, "")
-	lines = append(lines, selTitleStyle.Render("  ◆ tuist demos"))
-	lines = append(lines, "")
+func (s *selectorView) Render(ctx tuist.Context) {
+	ctx.Line("")
+	ctx.Line(selTitleStyle.Render("  ◆ tuist demos"))
+	ctx.Line("")
 
 	for i, d := range demoList {
 		prefix := "  "
@@ -159,13 +158,11 @@ func (s *selectorView) Render(_ tuist.Context) tuist.RenderResult {
 			prefix = "▸ "
 			style = selCurStyle
 		}
-		lines = append(lines, style.Render(prefix+d.name))
-		lines = append(lines, selDescStyle.Render("    "+d.desc))
-		lines = append(lines, "")
+		ctx.Line(style.Render(prefix + d.name))
+		ctx.Line(selDescStyle.Render("    " + d.desc))
+		ctx.Line("")
 	}
 
 	hints := strings.Join([]string{"↑↓/jk navigate", "enter select", "q quit"}, "  •  ")
-	lines = append(lines, selHintStyle.Render("  "+hints))
-
-	return tuist.RenderResult{Lines: lines}
+	ctx.Line(selHintStyle.Render("  " + hints))
 }

@@ -48,7 +48,7 @@ func runLogs(initialLines int) error {
 
 	log := newStressLog(initialLines)
 	statusBar := &statusBarComponent{}
-	statusBar.set("\x1b[7m v=verbose c=color a/A=append d=delete o=overlay s=spinner r=force 1-9/0=continuous q/Ctrl+C=quit \x1b[0m")
+	statusBar.set("\x1b[7m v=verbose c=color a/A=append d=delete o=overlay r=force 1-9/0=continuous q/Ctrl+C=quit \x1b[0m")
 
 	tui.AddChild(log)
 	tui.AddChild(statusBar)
@@ -60,22 +60,11 @@ func runLogs(initialLines int) error {
 	// State.
 	var (
 		overlayHandle    *tuist.OverlayHandle
-		spinner          *tuist.Spinner
-		spinnerSlot      *tuist.Slot
 		continuousTicker *time.Ticker
 		continuousDone   chan struct{}
 	)
 
 	quit := make(chan struct{})
-
-	// Spinner setup.
-	spinner = tuist.NewSpinner()
-	spinner.Label = "evaluating..."
-	spinner.Style = func(s string) string { return "\x1b[35m" + s + "\x1b[0m" }
-	spinnerSlot = tuist.NewSlot(nil)
-	tui.RemoveChild(statusBar)
-	tui.AddChild(spinnerSlot)
-	tui.AddChild(statusBar)
 
 	stopContinuous := func() {
 		if continuousTicker != nil {
@@ -148,12 +137,12 @@ func runLogs(initialLines int) error {
 
 		case key.Text == "d":
 			log.mu.Lock()
-			if len(log.entries) > 10 {
-				log.entries = log.entries[:len(log.entries)-10]
+			if len(log.lines) > 10 {
+				log.lines = log.lines[:len(log.lines)-10]
 			} else {
-				log.entries = nil
+				log.lines = nil
 			}
-			n := len(log.entries)
+			n := len(log.lines)
 			log.mu.Unlock()
 			log.Update()
 			statusBar.set(fmt.Sprintf("\x1b[7m deleted 10 lines (now %d) \x1b[0m", n))
@@ -189,17 +178,6 @@ func runLogs(initialLines int) error {
 			ctx.RequestRender(false)
 			return true
 
-		case key.Text == "s":
-			if spinnerSlot.Get() != nil {
-				spinnerSlot.Set(nil)
-				statusBar.set("\x1b[7m spinner stopped \x1b[0m")
-			} else {
-				spinnerSlot.Set(spinner)
-				statusBar.set("\x1b[7m spinner running (continuous repaints) \x1b[0m")
-			}
-			ctx.RequestRender(false)
-			return true
-
 		case key.Text == "r":
 			statusBar.set("\x1b[7m forced full redraw \x1b[0m")
 			ctx.RequestRender(true)
@@ -221,9 +199,10 @@ func runLogs(initialLines int) error {
 						return
 					case <-tick.C:
 						log.mu.Lock()
-						if target < len(log.entries) {
-							log.entries[target].message = fmt.Sprintf("[continuous] tick %d latency=%dµs",
+						if target < len(log.lines) {
+							log.lines[target].entry.message = fmt.Sprintf("[continuous] tick %d latency=%dµs",
 								time.Now().UnixMicro()%100000, rand.Intn(5000))
+							log.lines[target].Update()
 						}
 						log.mu.Unlock()
 						log.Update()
@@ -261,10 +240,14 @@ func runLogs(initialLines int) error {
 
 // ── stress log component ───────────────────────────────────────────────────
 
+// stressLog renders a list of logLine components, each with its own
+// spinner. When lines scroll above the viewport, their spinners
+// freeze via the Volatile interface — a good stress test for the
+// offscreen optimisation.
 type stressLog struct {
 	tuist.Compo
 	mu       sync.Mutex
-	entries  []stressEntry
+	lines    []*logLine
 	verbose  bool
 	colorize bool
 }
@@ -276,6 +259,13 @@ type stressEntry struct {
 }
 
 func newStressLog(n int) *stressLog {
+	s := &stressLog{}
+	s.lines = makeLogLines(n)
+	s.Update()
+	return s
+}
+
+func makeLogLines(n int) []*logLine {
 	levels := []string{"INFO", "DEBUG", "WARN", "ERROR", "TRACE"}
 	modules := []string{"tuist.render", "tuist.diff", "tuist.overlay", "tuist.input", "tuist.cursor",
 		"dang.eval", "dang.parse", "dang.infer", "dang.graphql", "dang.repl"}
@@ -297,58 +287,79 @@ func newStressLog(n int) *stressLog {
 		"ANSI truncation applied",
 	}
 
-	entries := make([]stressEntry, n)
+	lines := make([]*logLine, n)
 	base := time.Now().Add(-time.Duration(n) * 100 * time.Millisecond)
-	for i := range entries {
-		entries[i] = stressEntry{
+	for i := range lines {
+		lines[i] = newLogLine(stressEntry{
 			ts:      base.Add(time.Duration(i) * 100 * time.Millisecond),
 			level:   levels[rand.Intn(len(levels))],
 			message: fmt.Sprintf("[%s] %s id=%d latency=%dµs", modules[rand.Intn(len(modules))], messages[rand.Intn(len(messages))], rand.Intn(10000), rand.Intn(5000)),
-		}
+		})
 	}
-	s := &stressLog{entries: entries}
-	s.Update()
-	return s
+	return lines
 }
 
-func (s *stressLog) Render(ctx tuist.Context) tuist.RenderResult {
+func (s *stressLog) Render(ctx tuist.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	lines := make([]string, 0, len(s.entries)*2)
-	for _, e := range s.entries {
-		ts := e.ts.Format("15:04:05.000")
-		var levelStyled string
-		if s.colorize {
-			switch e.level {
-			case "ERROR":
-				levelStyled = "\x1b[31m" + e.level + "\x1b[0m"
-			case "WARN":
-				levelStyled = "\x1b[33m" + e.level + "\x1b[0m"
-			case "DEBUG":
-				levelStyled = "\x1b[36m" + e.level + "\x1b[0m"
-			case "TRACE":
-				levelStyled = "\x1b[90m" + e.level + "\x1b[0m"
-			default:
-				levelStyled = "\x1b[32m" + e.level + "\x1b[0m"
-			}
-		} else {
-			levelStyled = e.level
-		}
-		line := fmt.Sprintf("%s %-5s %s", ts, levelStyled, e.message)
-		lines = append(lines, line)
-
-		if s.verbose {
-			detail := fmt.Sprintf("         → stack: %s | goroutine: %d | alloc: %dKB",
-				randomStack(), rand.Intn(500), rand.Intn(8192))
-			if s.colorize {
-				detail = "\x1b[90m" + detail + "\x1b[0m"
-			}
-			lines = append(lines, detail)
-		}
+	for _, l := range s.lines {
+		l.colorize = s.colorize
+		l.verbose = s.verbose
+		s.RenderChild(ctx, l)
 	}
+}
 
-	return tuist.RenderResult{Lines: lines}
+// ── per-line component with spinner ────────────────────────────────────────
+
+type logLine struct {
+	tuist.Compo
+	entry    stressEntry
+	spinner  *tuist.Spinner
+	colorize bool
+	verbose  bool
+}
+
+func newLogLine(e stressEntry) *logLine {
+	sp := tuist.NewSpinner()
+	sp.Style = func(s string) string { return "\x1b[35m" + s + "\x1b[0m" }
+	return &logLine{
+		entry:   e,
+		spinner: sp,
+	}
+}
+
+func (l *logLine) Render(ctx tuist.Context) {
+	e := l.entry
+	ts := e.ts.Format("15:04:05.000")
+	var levelStyled string
+	if l.colorize {
+		switch e.level {
+		case "ERROR":
+			levelStyled = "\x1b[31m" + e.level + "\x1b[0m"
+		case "WARN":
+			levelStyled = "\x1b[33m" + e.level + "\x1b[0m"
+		case "DEBUG":
+			levelStyled = "\x1b[36m" + e.level + "\x1b[0m"
+		case "TRACE":
+			levelStyled = "\x1b[90m" + e.level + "\x1b[0m"
+		default:
+			levelStyled = "\x1b[32m" + e.level + "\x1b[0m"
+		}
+	} else {
+		levelStyled = e.level
+	}
+	spin := l.RenderChildInline(ctx, l.spinner)
+	ctx.Line(fmt.Sprintf("%s %s %-5s %s", spin, ts, levelStyled, e.message))
+
+	if l.verbose {
+		detail := fmt.Sprintf("           → stack: %s | goroutine: %d | alloc: %dKB",
+			randomStack(), rand.Intn(500), rand.Intn(8192))
+		if l.colorize {
+			detail = "\x1b[90m" + detail + "\x1b[0m"
+		}
+		ctx.Line(detail)
+	}
 }
 
 func randomStack() string {
@@ -369,11 +380,11 @@ func appendLines(log *stressLog, n int) {
 	levels := []string{"INFO", "DEBUG", "WARN"}
 	log.mu.Lock()
 	for range n {
-		log.entries = append(log.entries, stressEntry{
+		log.lines = append(log.lines, newLogLine(stressEntry{
 			ts:      time.Now(),
 			level:   levels[rand.Intn(len(levels))],
-			message: fmt.Sprintf("[append] new line %d val=%d", len(log.entries), rand.Intn(99999)),
-		})
+			message: fmt.Sprintf("[append] new line %d val=%d", len(log.lines), rand.Intn(99999)),
+		}))
 	}
 	log.mu.Unlock()
 	log.Update()
@@ -393,11 +404,11 @@ func (s *statusBarComponent) set(line string) {
 	s.mu.Unlock()
 	s.Update()
 }
-func (s *statusBarComponent) Render(ctx tuist.Context) tuist.RenderResult {
+func (s *statusBarComponent) Render(ctx tuist.Context) {
 	s.mu.Lock()
 	line := s.line
 	s.mu.Unlock()
-	return tuist.RenderResult{Lines: []string{line}}
+	ctx.Line(line)
 }
 
 type staticLines struct {
@@ -405,6 +416,6 @@ type staticLines struct {
 	lines []string
 }
 
-func (s *staticLines) Render(ctx tuist.Context) tuist.RenderResult {
-	return tuist.RenderResult{Lines: s.lines}
+func (s *staticLines) Render(ctx tuist.Context) {
+	ctx.Lines(s.lines...)
 }

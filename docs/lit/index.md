@@ -23,17 +23,15 @@ diffing, and a single UI goroutine.
 
 ```go
 type Counter struct {
-    // All components embed tea.Compo.
+    // All components embed tuist.Compo.
     tuist.Compo
     // Components store state however they like (public or private).
     Count int
 }
 
-// All components implement Render.
-func (c *Counter) Render(ctx tuist.Context) tuist.RenderResult {
-    return tuist.RenderResult{
-        Lines: []string{fmt.Sprintf("Count: %d", c.Count)},
-    }
+// All components implement Render, writing output via the context.
+func (c *Counter) Render(ctx tuist.Context) {
+    ctx.Line(fmt.Sprintf("Count: %d", c.Count))
 }
 
 var _ tuist.Interactive = (*Counter)(nil)
@@ -67,10 +65,11 @@ Calling `Update()` increments the generation and propagates upward. On each
 frame, Tuist only calls `Render()` for components whose generation is higher
 than last render.
 
-`Render()` returns rendered lines (`[]string`) and an optional cursor position.
-Tuist only renders lines that changed from the last frame. If the lines are
-offscreen, Tuist has to do a full repaint, but does so using synchronized output
-(DEC 2026) so it won't flicker.
+`Render()` writes output lines into a framework-owned buffer via `ctx.Line()`,
+`ctx.Lines()`, and optionally sets a cursor with `ctx.SetCursor()`. Tuist only
+renders lines that changed from the last frame. If the lines are offscreen,
+Tuist has to do a full repaint, but does so using synchronized output (DEC 2026)
+so it won't flicker.
 
 To avoid a sprawl of mutexes, Tuist provides `Dispatch()` for scheduling updates
 in the frame rendering loop, where they will be coalesced, followed by a single
@@ -98,8 +97,9 @@ Components only need to implement `Render`. Everything else is opt-in:
 
 ```go
 // Every component must embed Compo and implement Render.
+// Render writes output via ctx.Line(), ctx.Lines(), and ctx.SetCursor().
 type Component interface {
-    Render(ctx Context) RenderResult
+    Render(ctx Context)
 }
 
 // Keyboard input. Events bubble up the parent chain if handler returns false.
@@ -122,6 +122,9 @@ type Hoverable  interface { SetHovered(ctx Context, bool) }
 
 // Bracketed paste.
 type Pasteable  interface { HandlePaste(ctx Context, ev uv.PasteEvent) bool }
+
+// Volatile components return stable placeholders when offscreen.
+type Volatile   interface { OffscreenRender(ctx Context) }
 ```
 
 ## composition
@@ -130,27 +133,26 @@ Compose components together by calling `RenderChild()` in the parent component's
 `Render()` function.
 
 ```go
-// Vertical stack — Container does this internally
-func (c *MyLayout) Render(ctx tuist.Context) tuist.RenderResult {
-    var lines []string
+// Vertical stack — Container does this internally.
+// RenderChild appends the child's output directly to the parent's buffer.
+func (c *MyLayout) Render(ctx tuist.Context) {
     for _, child := range c.children {
-        r := c.RenderChild(ctx, child)
-        lines = append(lines, r.Lines...)
+        c.RenderChild(ctx, child)
     }
-    return tuist.RenderResult{Lines: lines}
 }
 
-// With adjusted constraints — ctx.Resize returns a copy with new Width/Height
-func (b *Border) Render(ctx tuist.Context) tuist.RenderResult {
-    inner := b.RenderChild(ctx.Resize(ctx.Width-2, ctx.Height-2), b.child)
-    // ... wrap inner.Lines with border chrome
+// With adjusted constraints — ctx.Resize returns a copy with new Width/Height.
+// RenderChildResult returns output without appending, for transforming it.
+func (b *Border) Render(ctx tuist.Context) {
+    inner := b.RenderChildResult(ctx.Resize(ctx.Width-2, ctx.Height-2), b.child)
+    // ... wrap inner.Lines with border chrome, then ctx.Lines(...)
 }
 
 // Inline — for embedding a child within a single line (e.g. a clickable value in a status bar)
-func (c *Chrome) Render(ctx tuist.Context) tuist.RenderResult {
+func (c *Chrome) Render(ctx tuist.Context) {
     re := c.RenderChildInline(ctx, c.reInput)  // returns string, zones auto-wired
     im := c.RenderChildInline(ctx, c.imInput)
-    return tuist.RenderResult{Lines: []string{"re " + re + "  im " + im}}
+    ctx.Line("re " + re + "  im " + im)
 }
 ```
 

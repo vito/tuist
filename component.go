@@ -34,9 +34,48 @@ type Context struct {
 	// (the component may return as many lines as it wants).
 	Height int
 
-	tui     *TUI
-	source  Component
-	recycle []string
+	tui    *TUI
+	source Component
+
+	// output is the render output buffer for the current component.
+	// During Render, components write lines into this via Line/Lines.
+	// Nil outside of Render.
+	output *renderOutput
+
+	// absoluteRow is the absolute line offset of this component's
+	// first line in the full rendered output. Computed exactly by
+	// RenderChild from the parent's output line count at call time.
+	// Used by the volatile-offscreen optimisation.
+	absoluteRow int
+
+	// viewportTop is the first visible line (from the previous frame).
+	// viewportHeight is the terminal height. Together they define the
+	// visible window; volatile offscreen components use them to decide
+	// whether to return a placeholder.
+	viewportTop    int
+	viewportHeight int
+}
+
+// renderOutput is the line buffer that components write into during Render.
+type renderOutput struct {
+	lines  []string
+	cursor *CursorPos
+}
+
+// Line emits a single output line.
+func (ctx Context) Line(s string) {
+	ctx.output.lines = append(ctx.output.lines, s)
+}
+
+// Lines emits multiple output lines.
+func (ctx Context) Lines(ss ...string) {
+	ctx.output.lines = append(ctx.output.lines, ss...)
+}
+
+// SetCursor sets the hardware cursor position relative to this
+// component's output (Row 0 = first line emitted).
+func (ctx Context) SetCursor(row, col int) {
+	ctx.output.cursor = &CursorPos{Row: row, Col: col}
 }
 
 // ScreenHeight returns the actual terminal height in rows. It is always
@@ -48,17 +87,6 @@ func (ctx Context) ScreenHeight() int {
 		return ctx.tui.screenHeight
 	}
 	return 0
-}
-
-// Recycle returns a pre-allocated []string from the previous render,
-// resliced to zero length. Components may append into it to avoid
-// allocating a new lines slice each frame. It is nil on the first
-// render. Components that ignore it get no behavior change.
-//
-// The slice is safe to reuse because parent containers copy child
-// lines into their own buffer via append.
-func (ctx Context) Recycle() []string {
-	return ctx.recycle
 }
 
 // Resize returns a copy of ctx with the given Width and Height.
@@ -107,10 +135,11 @@ func (ctx Context) Dispatch(fn func()) {
 // ComponentStat captures render metrics for a single component within
 // a frame.
 type ComponentStat struct {
-	Name     string `json:"name"`
-	RenderUs int64  `json:"render_us"`
-	Lines    int    `json:"lines"`
-	Cached   bool   `json:"cached"`
+	Name      string `json:"name"`
+	RenderUs  int64  `json:"render_us"`
+	Lines     int    `json:"lines"`
+	Cached    bool   `json:"cached"`
+	Offscreen bool   `json:"offscreen,omitempty"`
 }
 
 // componentName returns a short human-readable name for a component.
@@ -130,7 +159,7 @@ type CursorPos struct {
 	Row, Col int
 }
 
-// RenderResult is the output of a Component.Render call.
+// RenderResult is the cached output of a component's Render call.
 type RenderResult struct {
 	// Lines is the rendered content.
 	Lines []string
@@ -210,7 +239,7 @@ type Compo struct {
 	// renderComponent alternates between lineBufs[0] and lineBufs[1]
 	// so the previous render's slice (which may be referenced by
 	// TUI.previousLines or a parent's buffer) is never overwritten.
-	// The alternate buffer is exposed to Render via Context.Recycle().
+	// The alternate buffer is used as the output buffer's backing array.
 	lineBufs [2][]string
 	bufIdx   int
 
@@ -272,20 +301,52 @@ func (c *Compo) compo() *Compo { return c }
 // zone markers for positional mouse dispatch.
 //
 // The ctx argument carries layout constraints (Width, Height).
-// Pass-through rendering inherits the parent's
-// constraints; use [Context.Resize] for adjusted dimensions:
+// Pass-through rendering inherits the parent's constraints; use
+// [Context.Resize] for adjusted dimensions:
 //
-//	func (w *MyWrapper) Render(ctx tuist.Context) tuist.RenderResult {
-//	    return w.RenderChild(ctx, w.inner)
+//	func (w *MyWrapper) Render(ctx tuist.Context) {
+//	    w.RenderChild(ctx, w.inner)
 //	}
 //
-//	func (b *Border) Render(ctx tuist.Context) tuist.RenderResult {
-//	    return b.RenderChild(ctx.Resize(w, h), b.child)
+//	func (b *Border) Render(ctx tuist.Context) {
+//	    b.RenderChild(ctx.Resize(w, h), b.child)
 //	}
-func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
+func (c *Compo) RenderChild(ctx Context, child Component) {
+	r := c.renderChild(ctx, child)
+
+	// If the child has a cursor, translate it to the parent's coordinate space.
+	if r.Cursor != nil {
+		ctx.output.cursor = &CursorPos{
+			Row: len(ctx.output.lines) + r.Cursor.Row,
+			Col: r.Cursor.Col,
+		}
+	}
+
+	ctx.output.lines = append(ctx.output.lines, r.Lines...)
+}
+
+// RenderChildResult renders a child component through this Compo (with
+// full lifecycle management and caching) but does NOT append its output
+// to the parent's buffer. The caller receives the rendered lines and is
+// responsible for incorporating them into the output manually.
+//
+// Use this when you need to transform the child's output before emitting
+// it — for example, wrapping in a border or joining horizontally with
+// other children. For simple vertical stacking, use [RenderChild].
+func (c *Compo) RenderChildResult(ctx Context, child Component) RenderResult {
+	return c.renderChild(ctx, child)
+}
+
+func (c *Compo) renderChild(ctx Context, child Component) RenderResult {
 	child.compo().parent = c
 	child.compo().componentStats = c.componentStats
 	c.renderChildren = append(c.renderChildren, child)
+
+	// Compute the child's absolute row from the parent's base offset
+	// plus the number of lines the parent has emitted so far. This is
+	// exact — no estimation or safety margins needed.
+	childCtx := ctx
+	childCtx.absoluteRow = ctx.absoluteRow + len(ctx.output.lines)
 
 	// Auto-mount children so they get lifecycle hooks and
 	// proper Update() propagation through the TUI.
@@ -314,7 +375,7 @@ func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
 		}
 	}
 
-	r := renderComponent(child, ctx)
+	r := renderComponent(child, childCtx)
 	if _, ok := child.(MouseEnabled); ok {
 		r.Lines = markLines(child, r.Lines)
 	}
@@ -330,14 +391,13 @@ func (c *Compo) RenderChild(ctx Context, child Component) RenderResult {
 // produce content meant to be composed horizontally within a parent's
 // rendered line:
 //
-//	func (c *Chrome) Render(ctx tuist.Context) tuist.RenderResult {
+//	func (c *Chrome) Render(ctx tuist.Context) {
 //	    re := c.RenderChildInline(ctx, c.reInput)
 //	    im := c.RenderChildInline(ctx, c.imInput)
-//	    top := title + " re " + re + "  im " + im
-//	    return tuist.RenderResult{Lines: []string{top}}
+//	    ctx.Line(title + " re " + re + "  im " + im)
 //	}
 func (c *Compo) RenderChildInline(ctx Context, child Component) string {
-	r := c.RenderChild(ctx, child)
+	r := c.renderChild(ctx, child)
 	return strings.Join(r.Lines, "")
 }
 
@@ -370,6 +430,36 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 		return cp.cache.result
 	}
 
+	// Volatile offscreen optimisation: if the component implements
+	// Volatile, is fully above the viewport, and has been rendered at
+	// least once (so we know its height), call OffscreenRender for a
+	// stable placeholder instead of the real Render. We deliberately
+	// do NOT update the component's cache or renderedGen so that when
+	// it scrolls back into the viewport it will re-render via Render().
+	//
+	// absoluteRow is exact (computed from the parent's output line count
+	// at the time of RenderChild), so the check needs no safety margin.
+	if v, ok := ch.(Volatile); ok && ctx.viewportHeight > 0 && cp.cache != nil {
+		cachedLines := len(cp.cache.result.Lines)
+		if ctx.absoluteRow+cachedLines <= ctx.viewportTop {
+			out := &renderOutput{}
+			if stats != nil {
+				start := time.Now()
+				v.OffscreenRender(ctx.withOutput(out))
+				elapsed := time.Since(start)
+				*stats = append(*stats, ComponentStat{
+					Name:      componentName(ch),
+					RenderUs:  elapsed.Microseconds(),
+					Lines:     len(out.lines),
+					Offscreen: true,
+				})
+			} else {
+				v.OffscreenRender(ctx.withOutput(out))
+			}
+			return RenderResult{Lines: out.lines, Cursor: out.cursor}
+		}
+	}
+
 	// Cache miss — render and store. Record the generation we checked,
 	// not the current one, so any Update() during Render() is visible
 	// as a generation mismatch on the next frame.
@@ -378,25 +468,29 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	// (lineBufs[bufIdx]) may still be referenced by TUI.previousLines
 	// or a parent container, so we use the OTHER buffer.
 	cp.bufIdx ^= 1
-	ctx.recycle = cp.lineBufs[cp.bufIdx][:0]
 
 	// Save previous render children for orphan cleanup after Render.
 	// Nil out (rather than [:0]) so Render's appends don't alias.
 	prevRenderChildren := cp.renderChildren
 	cp.renderChildren = nil
-	var r RenderResult
+
+	out := &renderOutput{lines: cp.lineBufs[cp.bufIdx][:0]}
+	renderCtx := ctx.withOutput(out)
+
 	if stats != nil {
 		start := time.Now()
-		r = ch.Render(ctx)
+		ch.Render(renderCtx)
 		elapsed := time.Since(start)
 		*stats = append(*stats, ComponentStat{
 			Name:     componentName(ch),
 			RenderUs: elapsed.Microseconds(),
-			Lines:    len(r.Lines),
+			Lines:    len(out.lines),
 		})
 	} else {
-		r = ch.Render(ctx)
+		ch.Render(renderCtx)
 	}
+
+	r := RenderResult{Lines: out.lines, Cursor: out.cursor}
 	// Save back in case append grew the slice.
 	cp.lineBufs[cp.bufIdx] = r.Lines
 	cp.cache = &renderCache{result: r, width: ctx.Width}
@@ -417,6 +511,12 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	return r
 }
 
+// withOutput returns a copy of ctx with the given output buffer.
+func (ctx Context) withOutput(out *renderOutput) Context {
+	ctx.output = out
+	return ctx
+}
+
 // ── Component interfaces ───────────────────────────────────────────────────
 
 // Component is the interface all UI components must implement.
@@ -428,7 +528,10 @@ type Component interface {
 	compo() *Compo
 
 	// Render produces the visual output within the given constraints.
-	Render(ctx Context) RenderResult
+	// Components write output by calling ctx.Line(), ctx.Lines(), and
+	// ctx.SetCursor(). Child components are rendered via
+	// [Compo.RenderChild] which appends their output directly.
+	Render(ctx Context)
 }
 
 // Interactive is an optional interface for components that accept keyboard
@@ -517,6 +620,24 @@ type Hoverable interface {
 // they gain or lose focus (e.g. to show/hide a cursor).
 type Focusable interface {
 	SetFocused(ctx Context, focused bool)
+}
+
+// Volatile is an optional interface for components that re-render
+// frequently but whose changes are unimportant when offscreen (e.g.
+// spinners, progress bars). When a Volatile component is fully above
+// the visible viewport, the framework calls OffscreenRender instead of
+// Render, producing stable output that prevents unnecessary full
+// redraws in terminal multiplexers like tmux or Vim terminals.
+//
+// OffscreenRender should emit a static placeholder — for example a
+// frozen spinner frame with a label — so the component doesn't look
+// stuck if the user scrolls up to see it. The placeholder should have
+// the same number of lines as the normal Render output.
+//
+// When the component scrolls back into the viewport, normal Render
+// resumes automatically.
+type Volatile interface {
+	OffscreenRender(ctx Context)
 }
 
 // Mounter is an optional interface for components that need to perform
@@ -628,22 +749,9 @@ func (c *Container) Clear() {
 	c.Update()
 }
 
-func (c *Container) Render(ctx Context) RenderResult {
-	var lines []string
-	var cursor *CursorPos
+func (c *Container) Render(ctx Context) {
 	for _, ch := range c.Children {
-		r := c.RenderChild(ctx, ch)
-		if r.Cursor != nil {
-			cursor = &CursorPos{
-				Row: len(lines) + r.Cursor.Row,
-				Col: r.Cursor.Col,
-			}
-		}
-		lines = append(lines, r.Lines...)
-	}
-	return RenderResult{
-		Lines:  lines,
-		Cursor: cursor,
+		c.RenderChild(ctx, ch)
 	}
 }
 
@@ -678,9 +786,8 @@ func (s *Slot) Get() Component {
 	return s.child
 }
 
-func (s *Slot) Render(ctx Context) RenderResult {
-	if s.child == nil {
-		return RenderResult{}
+func (s *Slot) Render(ctx Context) {
+	if s.child != nil {
+		s.RenderChild(ctx, s.child)
 	}
-	return s.RenderChild(ctx, s.child)
 }

@@ -20,8 +20,11 @@ type text struct {
 	Cursor *tuist.CursorPos
 }
 
-func (s *text) Render(ctx tuist.Context) tuist.RenderResult {
-	return tuist.RenderResult{Lines: s.Lines, Cursor: s.Cursor}
+func (s *text) Render(ctx tuist.Context) {
+	ctx.Lines(s.Lines...)
+	if s.Cursor != nil {
+		ctx.SetCursor(s.Cursor.Row, s.Cursor.Col)
+	}
 }
 
 // borderedBox renders a lipgloss-bordered box that respects ctx.Height.
@@ -31,7 +34,7 @@ type borderedBox struct {
 	Lines []string
 }
 
-func (b *borderedBox) Render(ctx tuist.Context) tuist.RenderResult {
+func (b *borderedBox) Render(ctx tuist.Context) {
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("63"))
@@ -51,7 +54,7 @@ func (b *borderedBox) Render(ctx tuist.Context) tuist.RenderResult {
 	}
 
 	box := borderStyle.Width(innerW).Render(strings.Join(inner, "\n"))
-	return tuist.RenderResult{Lines: strings.Split(box, "\n")}
+	ctx.Lines(strings.Split(box, "\n")...)
 }
 
 // progressBar renders a text-based progress bar with lipgloss styling.
@@ -62,7 +65,7 @@ type progressBar struct {
 	Done  int
 }
 
-func (p *progressBar) Render(ctx tuist.Context) tuist.RenderResult {
+func (p *progressBar) Render(ctx tuist.Context) {
 	barWidth := ctx.Width - len(p.Label) - 5
 	if barWidth < 5 {
 		barWidth = 5
@@ -80,17 +83,17 @@ func (p *progressBar) Render(ctx tuist.Context) tuist.RenderResult {
 
 	pct := fmt.Sprintf("%3d%%", 100*p.Done/p.Total)
 	line := p.Label + " " + bar + " " + pct
-	return tuist.RenderResult{Lines: []string{line}}
+	ctx.Line(line)
 }
 
 // callbackComponent renders via a function.
 type callbackComponent struct {
 	tuist.Compo
-	fn func(tuist.Context) tuist.RenderResult
+	fn func(tuist.Context)
 }
 
-func (c *callbackComponent) Render(ctx tuist.Context) tuist.RenderResult {
-	return c.fn(ctx)
+func (c *callbackComponent) Render(ctx tuist.Context) {
+	c.fn(ctx)
 }
 
 // ── basic rendering ────────────────────────────────────────────────────────
@@ -98,6 +101,7 @@ func (c *callbackComponent) Render(ctx tuist.Context) tuist.RenderResult {
 func TestGolden_SimpleText(t *testing.T) {
 	term := vt.New(40, 5)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{
 		"Hello, world!",
 		"This is tuist.",
@@ -109,6 +113,7 @@ func TestGolden_SimpleText(t *testing.T) {
 func TestGolden_StyledText(t *testing.T) {
 	term := vt.New(50, 6)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	bold := lipgloss.NewStyle().Bold(true)
 	italic := lipgloss.NewStyle().Italic(true)
@@ -128,6 +133,7 @@ func TestGolden_StyledText(t *testing.T) {
 func TestGolden_Container(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{
 		lipgloss.NewStyle().Bold(true).Render("=== Status ==="),
 	}})
@@ -146,6 +152,7 @@ func TestGolden_Container(t *testing.T) {
 func TestGolden_ProgressBar(t *testing.T) {
 	term := vt.New(40, 4)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&progressBar{Label: "Building", Total: 20, Done: 5})
 	tui.RenderOnce()
 	golden.Assert(t, term.Render(), "golden/progress_bar.golden")
@@ -156,6 +163,7 @@ func TestGolden_ProgressBar(t *testing.T) {
 func TestGolden_DiffUpdate(t *testing.T) {
 	term := vt.New(40, 6)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	comp := &text{Lines: []string{
 		"line 1: stable",
@@ -175,6 +183,7 @@ func TestGolden_DiffUpdate(t *testing.T) {
 func TestGolden_AppendLines(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	comp := &text{Lines: []string{"a"}}
 	tui.AddChild(comp)
@@ -190,6 +199,7 @@ func TestGolden_AppendLines(t *testing.T) {
 func TestGolden_NoChangeStable(t *testing.T) {
 	term := vt.New(40, 5)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"stable line"}})
 
 	tui.RenderOnce()
@@ -201,6 +211,7 @@ func TestGolden_NoChangeStable(t *testing.T) {
 func TestGolden_WidthChange(t *testing.T) {
 	term := vt.New(40, 5)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"hello world"}})
 	tui.RenderOnce()
 
@@ -214,6 +225,7 @@ func TestGolden_WidthChange(t *testing.T) {
 func TestGolden_OffscreenChange(t *testing.T) {
 	term := vt.New(40, 5)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	lines := make([]string, 20)
 	for i := range lines {
@@ -236,6 +248,7 @@ func TestGolden_FirstRenderClearsExistingContent(t *testing.T) {
 	// children, old content must not bleed through.
 	term := vt.New(80, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	long := &text{Lines: []string{"Loading Dagger module from /home/user/project..."}}
 	tui.AddChild(long)
@@ -256,6 +269,7 @@ func TestGolden_ShrinkToZeroLines(t *testing.T) {
 	// previous line must be cleared — including line 0.
 	term := vt.New(40, 8)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	comp := &text{Lines: []string{"line A", "line B", "line C", "line D"}}
 	tui.AddChild(comp)
@@ -274,6 +288,7 @@ func TestGolden_ShrinkToZeroLines(t *testing.T) {
 func TestGolden_CursorPosition(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.SetShowHardwareCursor(true)
 
 	tui.AddChild(&text{
@@ -288,6 +303,7 @@ func TestGolden_CursorPosition(t *testing.T) {
 func TestGolden_ContainerPropagatesCursor(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.SetShowHardwareCursor(true)
 
 	// First child: 2 lines, no cursor.
@@ -308,6 +324,7 @@ func TestGolden_ContainerPropagatesCursor(t *testing.T) {
 func TestGolden_OverlayCompositing(t *testing.T) {
 	term := vt.New(20, 5)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	tui.AddChild(&text{Lines: []string{
 		strings.Repeat(".", 20),
@@ -328,6 +345,7 @@ func TestGolden_OverlayCompositing(t *testing.T) {
 func TestGolden_Overlay(t *testing.T) {
 	term := vt.New(50, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	var bgLines []string
 	for i := range 8 {
@@ -350,6 +368,7 @@ func TestGolden_Overlay(t *testing.T) {
 func TestGolden_ContentRelativeOverlay(t *testing.T) {
 	term := vt.New(30, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	tui.AddChild(&text{Lines: []string{"line-0", "line-1", "line-2"}})
 
@@ -366,6 +385,7 @@ func TestGolden_ContentRelativeOverlay(t *testing.T) {
 func TestGolden_CursorRelativeOverlayPreferAbove(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	tui.AddChild(&text{
 		Lines:  []string{"line-0", "line-1", "line-2", "line-3", "line-4", "input>"},
@@ -384,6 +404,7 @@ func TestGolden_CursorRelativeOverlayPreferAbove(t *testing.T) {
 func TestGolden_CursorRelativeOverlayFlipToBelow(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	// Cursor at row 1 — not enough room above for 3-line menu.
 	tui.AddChild(&text{
@@ -403,6 +424,7 @@ func TestGolden_CursorRelativeOverlayFlipToBelow(t *testing.T) {
 func TestGolden_CursorRelativeOverlayOffsetX(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	tui.AddChild(&text{
 		Lines:  []string{"aaaa", "bbbb", "cccc", "input>"},
@@ -424,6 +446,7 @@ func TestGolden_CursorRelativeOverlayMaxHeightNotClampedToContent(t *testing.T) 
 	// against terminal height, not content height.
 	term := vt.New(40, 24)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	tui.AddChild(&text{
 		Lines:  []string{"line-0", "line-1", "input>"},
@@ -447,6 +470,7 @@ func TestGolden_CursorRelativeOverlayMaxHeightNotClampedToContent(t *testing.T) 
 func TestGolden_CursorRelativeOverlayCursorGroupBothFitAbove(t *testing.T) {
 	term := vt.New(60, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	var bgLines []string
 	for i := range 7 {
@@ -481,6 +505,7 @@ func TestGolden_CursorRelativeOverlayCursorGroupBothFitAbove(t *testing.T) {
 func TestGolden_CursorRelativeOverlayCursorGroupFlipAll(t *testing.T) {
 	term := vt.New(60, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	// Cursor at row 3. Menu (2 lines) fits above but detail (5 lines)
 	// doesn't. CursorGroup forces both below.
@@ -512,6 +537,7 @@ func TestGolden_CursorRelativeOverlayCursorGroupFlipAll(t *testing.T) {
 func TestGolden_CursorRelativeOverlayNoCursor(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	// No cursor — cursor-relative overlay should be hidden.
 	tui.AddChild(&text{Lines: []string{"line-0", "line-1"}})
@@ -528,6 +554,7 @@ func TestGolden_CursorRelativeOverlayNoCursor(t *testing.T) {
 func TestGolden_OverlayMaxHeightPassedToComponent(t *testing.T) {
 	term := vt.New(80, 24)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	tui.AddChild(&text{Lines: []string{
 		"content 0", "content 1", "content 2", "content 3", "content 4",
@@ -553,6 +580,7 @@ func TestGolden_OverlayMaxHeightPassedToComponent(t *testing.T) {
 func TestGolden_OverlayBorderedBoxWithMaxHeight(t *testing.T) {
 	term := vt.New(60, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	var bgLines []string
 	for i := range 10 {
@@ -580,6 +608,7 @@ func TestGolden_OverlayBorderedBoxWithMaxHeight(t *testing.T) {
 func TestGolden_OverlayBorderedBoxFitsNaturally(t *testing.T) {
 	term := vt.New(60, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	var bgLines []string
 	for i := range 10 {
@@ -603,6 +632,7 @@ func TestGolden_OverlayBorderedBoxFitsNaturally(t *testing.T) {
 func TestGolden_OverlayLastLineNotDropped(t *testing.T) {
 	term := vt.New(60, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"line 0", "line 1", "line 2"}})
 
 	tui.ShowOverlay(&text{Lines: []string{
@@ -619,6 +649,7 @@ func TestGolden_OverlayLastLineNotDropped(t *testing.T) {
 func TestGolden_OverlayLastLineWithScrolling(t *testing.T) {
 	term := vt.New(60, 12)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	var bgLines []string
 	for i := range 15 {
@@ -640,6 +671,7 @@ func TestGolden_OverlayLastLineWithScrolling(t *testing.T) {
 func TestGolden_OverlayTwoOverlaysLastLine(t *testing.T) {
 	term := vt.New(60, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{
 		"line 0", "line 1", "line 2", "line 3", "line 4",
 	}})
@@ -665,6 +697,7 @@ func TestGolden_OverlayTwoOverlaysLastLine(t *testing.T) {
 func TestGolden_OverlayAtBottomOfViewport(t *testing.T) {
 	term := vt.New(60, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	var bgLines []string
 	for i := range 8 {
@@ -694,6 +727,7 @@ func TestGolden_OverlayAtBottomOfViewport(t *testing.T) {
 func TestGolden_OverlayTallerThanViewport(t *testing.T) {
 	term := vt.New(60, 8)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"bg 0", "bg 1", "bg 2", "bg 3"}})
 
 	tui.ShowOverlay(&text{Lines: []string{
@@ -720,6 +754,7 @@ func TestGolden_OverlayTallerThanViewport(t *testing.T) {
 func TestGolden_OverlayBorderedBoxWidthMismatch(t *testing.T) {
 	term := vt.New(80, 24)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	var bgLines []string
 	for i := range 15 {
@@ -727,7 +762,7 @@ func TestGolden_OverlayBorderedBoxWidthMismatch(t *testing.T) {
 	}
 	tui.AddChild(&text{Lines: bgLines})
 
-	overlay := &callbackComponent{fn: func(ctx tuist.Context) tuist.RenderResult {
+	overlay := &callbackComponent{fn: func(ctx tuist.Context) {
 		borderStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("63"))
@@ -754,7 +789,7 @@ func TestGolden_OverlayBorderedBoxWidthMismatch(t *testing.T) {
 
 		inner := strings.Join(lines, "\n")
 		box := borderStyle.Width(ctx.Width).Render(inner)
-		return tuist.RenderResult{Lines: strings.Split(box, "\n")}
+		ctx.Lines(strings.Split(box, "\n")...)
 	}}
 	tui.ShowOverlay(overlay, &tuist.OverlayOptions{
 		Width:     tuist.SizeAbs(35),
@@ -774,6 +809,7 @@ func TestGolden_OverlayAfterContentShrinks(t *testing.T) {
 	// far below the visible content.
 	term := vt.New(40, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	// Start with 20 lines of content.
 	lines := make([]string, 20)
@@ -823,6 +859,7 @@ func overlayAnchorBackground(rows int) []string {
 func TestGolden_OverlayAnchorTopLeft(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"TL1", "TL2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -835,6 +872,7 @@ func TestGolden_OverlayAnchorTopLeft(t *testing.T) {
 func TestGolden_OverlayAnchorTopCenter(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"TC1", "TC2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -847,6 +885,7 @@ func TestGolden_OverlayAnchorTopCenter(t *testing.T) {
 func TestGolden_OverlayAnchorBottomLeft(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"BL1", "BL2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -859,6 +898,7 @@ func TestGolden_OverlayAnchorBottomLeft(t *testing.T) {
 func TestGolden_OverlayAnchorBottomRight(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"BR1", "BR2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -871,6 +911,7 @@ func TestGolden_OverlayAnchorBottomRight(t *testing.T) {
 func TestGolden_OverlayAnchorBottomCenter(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"BC1", "BC2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -883,6 +924,7 @@ func TestGolden_OverlayAnchorBottomCenter(t *testing.T) {
 func TestGolden_OverlayAnchorLeftCenter(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"LC1", "LC2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -895,6 +937,7 @@ func TestGolden_OverlayAnchorLeftCenter(t *testing.T) {
 func TestGolden_OverlayAnchorRightCenter(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"RC1", "RC2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -909,6 +952,7 @@ func TestGolden_OverlayAnchorRightCenter(t *testing.T) {
 func TestGolden_OverlayMarginAllSides(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"M1", "M2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -922,6 +966,7 @@ func TestGolden_OverlayMarginAllSides(t *testing.T) {
 func TestGolden_OverlayMarginBottomRight(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"BR1", "BR2"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -937,6 +982,7 @@ func TestGolden_OverlayMarginBottomRight(t *testing.T) {
 func TestGolden_OverlayWidthPct(t *testing.T) {
 	term := vt.New(40, 8)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(8)})
 	tui.ShowOverlay(&text{Lines: []string{"50% width overlay"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizePct(50),
@@ -949,6 +995,7 @@ func TestGolden_OverlayWidthPct(t *testing.T) {
 func TestGolden_OverlayMaxHeightPct(t *testing.T) {
 	term := vt.New(40, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(20)})
 
 	var lines []string
@@ -967,6 +1014,7 @@ func TestGolden_OverlayMaxHeightPct(t *testing.T) {
 func TestGolden_OverlayMinWidth(t *testing.T) {
 	term := vt.New(40, 6)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(6)})
 	// Width is 5 but MinWidth is 15, so 15 should win.
 	tui.ShowOverlay(&text{Lines: []string{"narrow?"}}, &tuist.OverlayOptions{
@@ -983,6 +1031,7 @@ func TestGolden_OverlayMinWidth(t *testing.T) {
 func TestGolden_OverlayExplicitRowCol(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"HERE"}}, &tuist.OverlayOptions{
 		Width: tuist.SizeAbs(8),
@@ -996,6 +1045,7 @@ func TestGolden_OverlayExplicitRowCol(t *testing.T) {
 func TestGolden_OverlayRowColPct(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	// 50% row = vertically centered, 50% col = horizontally centered.
 	tui.ShowOverlay(&text{Lines: []string{"CTR"}}, &tuist.OverlayOptions{
@@ -1012,6 +1062,7 @@ func TestGolden_OverlayRowColPct(t *testing.T) {
 func TestGolden_OverlayOffsetXY(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"OFF"}}, &tuist.OverlayOptions{
 		Width:   tuist.SizeAbs(8),
@@ -1028,6 +1079,7 @@ func TestGolden_OverlayOffsetXY(t *testing.T) {
 func TestGolden_OverlaySetHidden(t *testing.T) {
 	term := vt.New(40, 6)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"bg line 0", "bg line 1", "bg line 2"}})
 	handle := tui.ShowOverlay(&text{Lines: []string{"POPUP"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(10),
@@ -1044,6 +1096,7 @@ func TestGolden_OverlaySetHidden(t *testing.T) {
 func TestGolden_OverlaySetHiddenThenShow(t *testing.T) {
 	term := vt.New(40, 6)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"bg line 0", "bg line 1", "bg line 2"}})
 	handle := tui.ShowOverlay(&text{Lines: []string{"POPUP"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(10),
@@ -1063,6 +1116,7 @@ func TestGolden_OverlaySetHiddenThenShow(t *testing.T) {
 func TestGolden_OverlayRemove(t *testing.T) {
 	term := vt.New(40, 6)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"bg line 0", "bg line 1", "bg line 2"}})
 	handle := tui.ShowOverlay(&text{Lines: []string{"POPUP"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(10),
@@ -1078,6 +1132,7 @@ func TestGolden_OverlayRemove(t *testing.T) {
 func TestGolden_OverlaySetOptions(t *testing.T) {
 	term := vt.New(40, 8)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(8)})
 	handle := tui.ShowOverlay(&text{Lines: []string{"MOVE"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -1099,6 +1154,7 @@ func TestGolden_OverlaySetOptions(t *testing.T) {
 func TestGolden_ContentRelativeTopRight(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	// 4 lines of content, viewport is 10.
 	tui.AddChild(&text{Lines: []string{"line-0", "line-1", "line-2", "line-3"}})
 	tui.ShowOverlay(&text{Lines: []string{"CR-TR"}}, &tuist.OverlayOptions{
@@ -1113,6 +1169,7 @@ func TestGolden_ContentRelativeTopRight(t *testing.T) {
 func TestGolden_ContentRelativeBottomRight(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"line-0", "line-1", "line-2", "line-3"}})
 	tui.ShowOverlay(&text{Lines: []string{"CR-BR"}}, &tuist.OverlayOptions{
 		Width:           tuist.SizeAbs(10),
@@ -1128,6 +1185,7 @@ func TestGolden_ContentRelativeWithScrolling(t *testing.T) {
 	// relative to the full content height, not the viewport.
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	lines := make([]string, 25)
 	for i := range lines {
 		lines[i] = fmt.Sprintf("line-%02d", i)
@@ -1149,6 +1207,7 @@ func TestGolden_OverlappingOverlays(t *testing.T) {
 	// paint over the first where they overlap.
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"AAAA", "AAAA", "AAAA"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(10),
@@ -1172,6 +1231,7 @@ func TestGolden_OverlayAfterContentShrinksBottomAnchor(t *testing.T) {
 	// visible bottom.
 	term := vt.New(40, 20)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	lines := make([]string, 20)
 	for i := range lines {
@@ -1213,6 +1273,7 @@ func TestGolden_OverlayNilOptions(t *testing.T) {
 	// Passing nil options should use sensible defaults.
 	term := vt.New(40, 6)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(6)})
 	tui.ShowOverlay(&text{Lines: []string{"DEFAULT"}}, nil)
 	tui.RenderOnce()
@@ -1224,6 +1285,7 @@ func TestGolden_OverlayNilOptions(t *testing.T) {
 func TestGolden_OverlayFourCorners(t *testing.T) {
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: overlayAnchorBackground(10)})
 	tui.ShowOverlay(&text{Lines: []string{"TL"}}, &tuist.OverlayOptions{
 		Width: tuist.SizeAbs(6), Anchor: tuist.AnchorTopLeft,
@@ -1249,6 +1311,7 @@ func TestGolden_OverlayContentShorterThanViewport(t *testing.T) {
 	// not the content.
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 	tui.AddChild(&text{Lines: []string{"short-0", "short-1", "short-2"}})
 	tui.ShowOverlay(&text{Lines: []string{"BOT"}}, &tuist.OverlayOptions{
 		Width:  tuist.SizeAbs(8),
@@ -1265,6 +1328,7 @@ func TestGolden_OverlayContentGrows(t *testing.T) {
 	// viewport height.
 	term := vt.New(40, 10)
 	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
 
 	comp := &text{Lines: []string{"line-0", "line-1"}}
 	tui.AddChild(comp)

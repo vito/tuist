@@ -183,8 +183,11 @@ type TUI struct {
 
 	// ── mu-protected state (shared between goroutines) ──
 
-	fullRedrawCount int
-	kittyKeyboard   bool
+	fullRedrawCount      int
+	kittyKeyboard        bool
+	syncOutputSupported  bool  // true until DECRPM says otherwise
+	syncOutputQueryState uint8 // 0=unsent, 1=sent, 2=answered
+	altScreen            bool  // true when using alt screen (no sync output)
 
 	// ── UI-goroutine-only state (no lock needed) ──
 
@@ -193,6 +196,8 @@ type TUI struct {
 	focusedComponent Component
 	inputListeners   []inputListenerEntry
 
+	frameDir            string // TUIST_FRAMES: dump each frame to this dir
+	frameNum            int
 	cursorRow           int
 	hardwareCursorRow   int
 	hardwareCursorCol   int // last written cursor column (1-indexed terminal column)
@@ -347,6 +352,60 @@ func (t *TUI) FullRedraws() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.fullRedrawCount
+}
+
+// SetSyncOutput overrides synchronized output detection. Use this to
+// force sync output on or off, e.g. in tests or when the terminal is
+// known to support it but doesn't respond to DECRQM.
+//
+// Safe to call from any goroutine.
+func (t *TUI) SetSyncOutput(supported bool) {
+	t.mu.Lock()
+	t.syncOutputSupported = supported
+	t.syncOutputQueryState = 2 // treat as answered
+	t.mu.Unlock()
+}
+
+// enterAltScreen switches to the alternate screen buffer. Used when
+// synchronized output is not available, since alt screen gives us
+// absolute cursor positioning and eliminates stale-line artifacts.
+func (t *TUI) enterAltScreen() {
+	t.terminal.WriteString(escAltScreenEnter)
+	t.terminal.WriteString(escCursorHome)
+	t.altScreen = true
+	// Reset rendering state — alt screen is a blank slate.
+	t.previousLines = nil
+	t.previousWidth = -1
+	t.cursorRow = 0
+	t.hardwareCursorRow = 0
+	t.hardwareCursorCol = 0
+	t.maxLinesRendered = 0
+	t.previousViewportTop = 0
+}
+
+// leaveAltScreen switches back to the normal screen buffer.
+func (t *TUI) leaveAltScreen() {
+	if !t.altScreen {
+		return
+	}
+	t.terminal.WriteString(escAltScreenLeave)
+	t.altScreen = false
+}
+
+// HasSyncOutput reports whether the terminal supports synchronized output
+// (DEC private mode 2026). This is queried via DECRQM at startup; until
+// the response arrives, it returns false (safe default for terminals
+// that don't implement DECRQM and never reply).
+//
+// When the terminal does not support synchronized output, full redraws
+// are avoided (they would flicker) and only the visible region is
+// repainted.
+//
+// Safe to call from any goroutine.
+func (t *TUI) HasSyncOutput() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.syncOutputSupported
 }
 
 // SetShowHardwareCursor enables or disables the hardware cursor.
@@ -529,6 +588,13 @@ func (t *TUI) Start() error {
 	t.stopCtx, t.stopCancel = context.WithCancel(context.Background())
 	t.loopDone = make(chan struct{})
 
+	// Auto-configure frame dumping from environment.
+	if dir := os.Getenv("TUIST_FRAMES"); dir != "" {
+		_ = os.MkdirAll(dir, 0755)
+		t.frameDir = dir
+		t.frameNum = 0
+	}
+
 	// Auto-configure debug logging from environment.
 	if logPath := os.Getenv("TUIST_LOG"); logPath != "" && t.debugWriter == nil {
 		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
@@ -556,6 +622,32 @@ func (t *TUI) Start() error {
 	// the UI goroutine sees consistent cursorHidden state (no race).
 	t.terminal.HideCursor()
 	t.cursorHidden = true
+
+	// Check for explicit override via environment variable.
+	// TUIST_SYNC=0 disables synchronized output (avoids flicker on
+	// terminals that silently ignore mode 2026).
+	// TUIST_SYNC=1 forces it on (skip the DECRQM query).
+	if v := os.Getenv("TUIST_SYNC"); v == "0" {
+		t.mu.Lock()
+		t.syncOutputSupported = false
+		t.syncOutputQueryState = 2 // answered (overridden)
+		t.mu.Unlock()
+		// Alt screen will be entered on the first render.
+	} else if v == "1" {
+		t.mu.Lock()
+		t.syncOutputSupported = true
+		t.syncOutputQueryState = 2 // answered (overridden)
+		t.mu.Unlock()
+	} else {
+		// Query synchronized output support. The response (DECRPM)
+		// is handled in dispatchEvent. Until we hear back, we assume
+		// sync output is NOT supported — terminals that don't
+		// implement DECRQM won't reply at all.
+		t.terminal.WriteString(ansi.RequestModeSynchronizedOutput)
+		t.mu.Lock()
+		t.syncOutputQueryState = 1 // sent
+		t.mu.Unlock()
+	}
 
 	// Start the run loop after terminal.Start() so that the terminal's
 	// fields (e.g. ttyOut) are fully initialized before the loop goroutine
@@ -603,7 +695,11 @@ func (t *TUI) stop(clear bool) {
 		t.mouseRefCount = 0
 	}
 
-	if len(prev) > 0 {
+	if t.altScreen {
+		// Leave alt screen — the normal screen buffer is restored
+		// automatically by the terminal.
+		t.leaveAltScreen()
+	} else if len(prev) > 0 {
 		if clear {
 			// Move cursor to the top of the TUI output and erase
 			// everything below so the executed command starts clean.
@@ -686,7 +782,7 @@ func (t *TUI) startInputReader(ctx context.Context) *io.PipeWriter {
 	pr, pw := io.Pipe()
 	reader := uv.NewTerminalReader(pr, os.Getenv("TERM"))
 	go func() {
-		defer pr.Close()
+		defer pr.Close() //nolint:errcheck
 		// StreamEvents blocks until ctx is cancelled or the reader
 		// hits an error (e.g. pipe closed). It handles escape
 		// timeouts, bracketed paste buffering, terminfo lookups, etc.
@@ -707,6 +803,19 @@ func (t *TUI) dispatchEvent(ev uv.Event) {
 	}
 
 	switch e := ev.(type) {
+	case uv.ModeReportEvent:
+		if e.Mode == ansi.ModeSynchronizedOutput {
+			supported := e.Value.IsSet() || e.Value.IsReset()
+			t.mu.Lock()
+			t.syncOutputSupported = supported
+			t.syncOutputQueryState = 2 // answered
+			t.mu.Unlock()
+			// Alt screen enter/leave is handled at render time based on
+			// hasSyncOutput(). Just request a re-render to pick up the
+			// change.
+			t.RequestRender(false)
+		}
+		return
 	case uv.KeyboardEnhancementsEvent:
 		// Update under lock for HasKittyKeyboard() which may be called
 		// from any goroutine.
@@ -928,7 +1037,6 @@ func (t *TUI) scanMouseZones(lines []string) []string {
 	return stripped
 }
 
-
 // dispatchMousePositional finds the deepest (last-scanned) MouseEnabled
 // zone containing the mouse position and dispatches the event with
 // zone-relative coordinates.
@@ -1082,7 +1190,42 @@ const (
 	escMouseAllMotionDisable = "\x1b[?1003l"
 	escMouseSGREnable        = "\x1b[?1006h" // SGR extended encoding
 	escMouseSGRDisable       = "\x1b[?1006l"
+
+	// Alternate screen buffer.
+	escAltScreenEnter = "\x1b[?1049h"
+	escAltScreenLeave = "\x1b[?1049l"
 )
+
+// hasSyncOutput returns whether the terminal supports synchronized output.
+// Must only be called from the UI goroutine.
+func (t *TUI) hasSyncOutput() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.syncOutputSupported
+}
+
+// syncBegin returns the synchronized output begin sequence, or empty
+// string if the terminal does not support it.
+func (t *TUI) syncBegin() string {
+	if t.hasSyncOutput() {
+		return escSyncBegin
+	}
+	return ""
+}
+
+// syncEnd returns the synchronized output end sequence, or empty
+// string if the terminal does not support it.
+func (t *TUI) syncEnd() string {
+	if t.hasSyncOutput() {
+		return escSyncEnd
+	}
+	return ""
+}
+
+// cursorTo returns an escape sequence moving the cursor to row, col (1-indexed).
+func cursorTo(row, col int) string {
+	return fmt.Sprintf("\x1b[%d;%dH", row, col)
+}
 
 // cursorUp returns an escape sequence moving the cursor up n rows.
 // Returns "" if n <= 0.
@@ -1200,8 +1343,29 @@ func (t *TUI) doRender() {
 	// so the diff engine and terminal see clean output.
 	displayLines := t.scanMouseZones(newLines)
 
+	// Dump frame for debugging if TUIST_FRAMES is set.
+	if t.frameDir != "" {
+		t.dumpFrame(displayLines, height)
+	}
+
 	// Choose rendering strategy and write to terminal.
-	t.applyFrame(width, height, displayLines, cursorPos, compStats, &stats, totalStart, &memBefore)
+	// Use alt screen when synchronized output is not available AND content
+	// exceeds the viewport. While content fits on screen, normal scrollback
+	// works fine. Once content overflows, the normal renderer suffers from
+	// viewport drift and stale lines without sync — switch to alt screen.
+	if !t.hasSyncOutput() {
+		if !t.altScreen && len(displayLines) > height {
+			t.enterAltScreen()
+		}
+	} else if t.altScreen {
+		// Sync became available (e.g. DECRPM response arrived) — leave alt.
+		t.leaveAltScreen()
+	}
+	if t.altScreen {
+		t.applyFrameAltScreen(width, height, displayLines, cursorPos, compStats, &stats, totalStart, &memBefore)
+	} else {
+		t.applyFrame(width, height, displayLines, cursorPos, compStats, &stats, totalStart, &memBefore)
+	}
 }
 
 // renderFrame renders the component tree and composites overlays, producing
@@ -1209,9 +1373,11 @@ func (t *TUI) doRender() {
 func (t *TUI) renderFrame(width, height int, stats *RenderStats) ([]string, *CursorPos, []ComponentStat) {
 	renderStart := time.Now()
 	ctx := Context{
-		Context: context.Background(),
-		tui:     t,
-		Width:   width,
+		Context:        context.Background(),
+		tui:            t,
+		Width:          width,
+		viewportTop:    max(0, t.maxLinesRendered-height),
+		viewportHeight: height,
 	}
 	var compStats []ComponentStat
 	if t.debugWriter != nil {
@@ -1263,10 +1429,17 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 
 	// Full redraw needed?
 	if reason, clear := t.needsFullRedraw(newLines); reason != "" {
-		stats.FullRedrawReason = reason
-		t.writeFullRedraw(width, height, newLines, cursorPos, stats, clear)
-		emitStats()
-		return
+		if !t.hasSyncOutput() && clear {
+			// Without sync output, a clear+repaint would flicker.
+			// Reset maxLinesRendered so viewport math is correct,
+			// then fall through to differential rendering.
+			t.maxLinesRendered = len(newLines)
+		} else {
+			stats.FullRedrawReason = reason
+			t.writeFullRedraw(width, height, newLines, cursorPos, stats, clear)
+			emitStats()
+			return
+		}
 	}
 
 	// Compute diff.
@@ -1299,6 +1472,8 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 	}
 
 	// First change above previous viewport → full redraw.
+	// (When sync output is unavailable, content that overflows the viewport
+	// is rendered on the alt screen, so this path is only reached with sync.)
 	if dr.firstChanged < t.previousViewportTop {
 		stats.FullRedrawReason = fmt.Sprintf(
 			"above_viewport:first=%d,vpTop=%d,prevLines=%d,newLines=%d,height=%d",
@@ -1342,7 +1517,7 @@ func (t *TUI) writeFullRedraw(width, height int, newLines []string, cursorPos *C
 	diffStart := time.Now()
 	buf := &t.writeBuf
 	buf.Reset()
-	buf.WriteString(escSyncBegin)
+	buf.WriteString(t.syncBegin())
 	if clear {
 		buf.WriteString(escClearScrollback)
 		buf.WriteString(escClearScreen)
@@ -1358,7 +1533,7 @@ func (t *TUI) writeFullRedraw(width, height int, newLines []string, cursorPos *C
 		buf.WriteString(line)
 		buf.WriteString(segmentReset)
 	}
-	buf.WriteString(escSyncEnd)
+	buf.WriteString(t.syncEnd())
 	stats.DiffTime = time.Since(diffStart)
 	stats.BytesWritten = buf.Len()
 
@@ -1411,7 +1586,7 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 
 		buf := &t.writeBuf
 		buf.Reset()
-		buf.WriteString(escSyncBegin)
+		buf.WriteString(t.syncBegin())
 		buf.WriteString(cursorVertical(delta))
 		buf.WriteString("\r")
 		if len(newLines) == 0 {
@@ -1440,7 +1615,7 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 			}
 			buf.WriteString(cursorUp(extra))
 		}
-		buf.WriteString(escSyncEnd)
+		buf.WriteString(t.syncEnd())
 		stats.DiffTime = time.Since(diffStart)
 		stats.BytesWritten = buf.Len()
 
@@ -1455,6 +1630,12 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 		stats.DiffTime = time.Since(diffStart)
 	}
 
+	// Shrink maxLinesRendered when trailing lines are cleared so the
+	// viewport is computed from the actual content size.
+	if len(t.previousLines) > len(newLines) {
+		t.maxLinesRendered = len(newLines)
+	}
+
 	t.positionHardwareCursor(cursorPos, len(newLines))
 	t.previousLines = newLines
 	t.previousWidth = width
@@ -1466,7 +1647,7 @@ func (t *TUI) writeTailShrink(width, height int, newLines []string, cursorPos *C
 func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *CursorPos, stats *RenderStats, dr *diffResult, diffStart time.Time, viewportTop int) {
 	buf := &t.writeBuf
 	buf.Reset()
-	buf.WriteString(escSyncBegin)
+	buf.WriteString(t.syncBegin())
 
 	hardwareCursorRow := t.hardwareCursorRow
 	prevViewportTop := t.previousViewportTop
@@ -1545,7 +1726,7 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 		buf.WriteString(cursorUp(extra))
 	}
 
-	buf.WriteString(escSyncEnd)
+	buf.WriteString(t.syncEnd())
 	stats.DiffTime = time.Since(diffStart)
 
 	// Compute repainted/cached stats.
@@ -1560,7 +1741,14 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 	stats.WriteTime = time.Since(writeStart)
 
 	cr := max(0, len(newLines)-1)
-	ml := max(t.maxLinesRendered, len(newLines))
+	// If trailing lines were cleared, shrink maxLinesRendered so the
+	// viewport is computed from the actual content size.
+	ml := t.maxLinesRendered
+	if prevLineCount > len(newLines) {
+		ml = len(newLines)
+	} else {
+		ml = max(ml, len(newLines))
+	}
 
 	t.cursorRow = cr
 	t.hardwareCursorRow = finalCursorRow
@@ -1572,6 +1760,175 @@ func (t *TUI) writeDiffUpdate(width, height int, newLines []string, cursorPos *C
 
 	t.previousLines = newLines
 	t.previousWidth = width
+}
+
+// applyFrameAltScreen renders on the alternate screen buffer using absolute
+// cursor positioning. Only the visible slice of content is written, and only
+// lines that differ from the previous frame are updated.
+func (t *TUI) applyFrameAltScreen(width, height int, newLines []string, cursorPos *CursorPos, compStats []ComponentStat, stats *RenderStats, totalStart time.Time, memBefore *runtime.MemStats) {
+	emitStats := func() {
+		t.emitDebugStats(t.debugWriter, stats, compStats, totalStart, memBefore)
+	}
+
+	diffStart := time.Now()
+
+	// Compute the visible slice.
+	viewportTop := max(0, len(newLines)-height)
+	viewportEnd := min(viewportTop+height, len(newLines))
+	visible := newLines[viewportTop:viewportEnd]
+
+	// Compute the previous visible slice for diffing.
+	prevViewportTop := t.previousViewportTop
+	prevViewportEnd := min(prevViewportTop+height, len(t.previousLines))
+	var prevVisible []string
+	if prevViewportTop < len(t.previousLines) {
+		prevVisible = t.previousLines[prevViewportTop:prevViewportEnd]
+	}
+
+	buf := &t.writeBuf
+	buf.Reset()
+
+	linesRepainted := 0
+	firstChanged := -1
+	lastChanged := -1
+
+	for i, line := range visible {
+		// Check if this line differs from the previous frame.
+		var prevLine string
+		if i < len(prevVisible) {
+			prevLine = prevVisible[i]
+		}
+		if line == prevLine {
+			continue
+		}
+
+		if firstChanged == -1 {
+			firstChanged = i
+		}
+		lastChanged = i
+
+		// Absolute position: row i+1 (1-indexed), column 1.
+		buf.WriteString(cursorTo(i+1, 1))
+		buf.WriteString(escClearLine)
+		buf.WriteString(line)
+		buf.WriteString(segmentReset)
+		linesRepainted++
+	}
+
+	// Clear any leftover lines below the content.
+	for i := len(visible); i < height; i++ {
+		var prevLine string
+		if i < len(prevVisible) {
+			prevLine = prevVisible[i]
+		}
+		if prevLine == "" {
+			continue
+		}
+		buf.WriteString(cursorTo(i+1, 1))
+		buf.WriteString(escClearLine)
+	}
+
+	stats.DiffTime = time.Since(diffStart)
+	stats.LinesRepainted = linesRepainted
+	stats.CacheHits = len(visible) - linesRepainted
+	stats.TotalLines = len(newLines)
+	if firstChanged >= 0 {
+		stats.FirstChangedLine = viewportTop + firstChanged
+		stats.LastChangedLine = viewportTop + lastChanged
+	} else {
+		stats.FirstChangedLine = -1
+		stats.LastChangedLine = -1
+	}
+	stats.BytesWritten = buf.Len()
+
+	if buf.Len() > 0 {
+		writeStart := time.Now()
+		t.terminal.Write(buf.Bytes())
+		stats.WriteTime = time.Since(writeStart)
+	}
+
+	t.maxLinesRendered = len(newLines)
+	t.previousViewportTop = viewportTop
+	t.previousLines = newLines
+
+	// Position hardware cursor for the component's cursor (if any).
+	t.positionHardwareCursorAltScreen(cursorPos, viewportTop, height)
+
+	emitStats()
+}
+
+// positionHardwareCursorAltScreen positions the cursor on the alt screen
+// using absolute coordinates.
+func (t *TUI) positionHardwareCursorAltScreen(pos *CursorPos, viewportTop, height int) {
+	if pos == nil {
+		if !t.cursorHidden {
+			t.terminal.HideCursor()
+			t.cursorHidden = true
+		}
+		return
+	}
+
+	// Convert content row to screen row.
+	screenRow := pos.Row - viewportTop
+	if screenRow < 0 || screenRow >= height {
+		// Cursor is offscreen.
+		if !t.cursorHidden {
+			t.terminal.HideCursor()
+			t.cursorHidden = true
+		}
+		return
+	}
+
+	col := max(0, pos.Col) + 1 // 1-indexed
+	row := screenRow + 1       // 1-indexed
+
+	t.terminal.WriteString(cursorTo(row, col))
+	t.hardwareCursorRow = pos.Row
+	t.hardwareCursorCol = col
+
+	if t.showHardwareCursor {
+		if t.cursorHidden {
+			t.terminal.ShowCursor()
+			t.cursorHidden = false
+		}
+	} else {
+		if !t.cursorHidden {
+			t.terminal.HideCursor()
+			t.cursorHidden = true
+		}
+	}
+}
+
+// dumpFrame writes the full content and visible screen to numbered files
+// in the TUIST_FRAMES directory for debugging.
+func (t *TUI) dumpFrame(displayLines []string, height int) {
+	n := t.frameNum
+	t.frameNum++
+
+	path := fmt.Sprintf("%s/%d.txt", t.frameDir, n)
+
+	viewportTop := max(0, len(displayLines)-height)
+	viewportEnd := min(viewportTop+height, len(displayLines))
+
+	var buf strings.Builder
+	fmt.Fprintf(&buf, "=== frame %d | lines=%d height=%d viewportTop=%d ===\n",
+		n, len(displayLines), height, viewportTop)
+
+	buf.WriteString("\n--- screen (what alt screen should show) ---\n")
+	for i := viewportTop; i < viewportEnd; i++ {
+		fmt.Fprintf(&buf, "[%3d] %s\n", i, displayLines[i])
+	}
+
+	buf.WriteString("\n--- full content ---\n")
+	for i, line := range displayLines {
+		marker := "  "
+		if i >= viewportTop && i < viewportEnd {
+			marker = "> "
+		}
+		fmt.Fprintf(&buf, "%s[%3d] %s\n", marker, i, line)
+	}
+
+	_ = os.WriteFile(path, []byte(buf.String()), 0644)
 }
 
 // emitDebugStats writes render stats as a JSONL record if a debug writer

@@ -466,9 +466,9 @@ type completionMenuOverlay struct {
 	dimStyle      lipgloss.Style
 }
 
-func (c *completionMenuOverlay) Render(ctx Context) RenderResult {
+func (c *completionMenuOverlay) Render(ctx Context) {
 	if len(c.items) == 0 {
-		return RenderResult{}
+		return
 	}
 
 	visible := min(len(c.items), c.maxVisible)
@@ -516,7 +516,7 @@ func (c *completionMenuOverlay) Render(ctx Context) RenderResult {
 
 	inner := strings.Join(menuLines, "\n")
 	box := c.borderStyle.Render(inner)
-	return RenderResult{Lines: strings.Split(box, "\n")}
+	ctx.Lines(strings.Split(box, "\n")...)
 }
 
 type completionDetailOverlay struct {
@@ -525,9 +525,9 @@ type completionDetailOverlay struct {
 	borderStyle lipgloss.Style
 }
 
-func (d *completionDetailOverlay) Render(ctx Context) RenderResult {
+func (d *completionDetailOverlay) Render(ctx Context) {
 	if len(d.lines) == 0 {
-		return RenderResult{}
+		return
 	}
 
 	// Truncate if needed.
@@ -544,5 +544,5 @@ func (d *completionDetailOverlay) Render(ctx Context) RenderResult {
 
 	inner := strings.Join(lines, "\n")
 	box := d.borderStyle.Width(ctx.Width).Render(inner)
-	return RenderResult{Lines: strings.Split(box, "\n")}
+	ctx.Lines(strings.Split(box, "\n")...)
 }
