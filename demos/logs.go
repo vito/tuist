@@ -48,7 +48,6 @@ func runLogs(initialLines int) error {
 
 	log := newStressLog(initialLines)
 	statusBar := &statusBarComponent{}
-	statusBar.set("\x1b[7m v=verbose c=color a/A=append d=delete o=overlay r=force 1-9/0=continuous q/Ctrl+C=quit \x1b[0m")
 
 	tui.AddChild(log)
 	tui.AddChild(statusBar)
@@ -60,6 +59,7 @@ func runLogs(initialLines int) error {
 	// State.
 	var (
 		overlayHandle    *tuist.OverlayHandle
+		keymapHandle     *tuist.OverlayHandle
 		continuousTicker *time.Ticker
 		continuousDone   chan struct{}
 	)
@@ -82,20 +82,31 @@ func runLogs(initialLines int) error {
 		}
 	}
 
-	// Input handler.
-	tui.AddInputListener(func(ctx tuist.Context, ev uv.Event) bool {
-		kp, ok := ev.(uv.KeyPressEvent)
-		if !ok {
-			return false
-		}
-		key := uv.Key(kp)
-
-		switch {
-		case key.Text == "q" || (key.Code == 'c' && key.Mod == uv.ModCtrl):
+	// Keymap — declarative bindings that drive both input handling and the help overlay.
+	var km keymap
+	km = keymap{
+		{key: "q", desc: "quit", action: func(ctx tuist.Context, _ uv.Key) {
 			doQuit()
-			return true
-
-		case key.Text == "v":
+		}},
+		{key: "Ctrl+C", desc: "quit", action: func(ctx tuist.Context, _ uv.Key) {
+			doQuit()
+		}},
+		{key: "?", desc: "toggle keymap", action: func(ctx tuist.Context, _ uv.Key) {
+			if keymapHandle != nil {
+				keymapHandle.Remove()
+				keymapHandle = nil
+				statusBar.set(km.statusLine())
+			} else {
+				overlay := km.overlay()
+				keymapHandle = ctx.ShowOverlay(overlay, &tuist.OverlayOptions{
+					Width:  tuist.SizeAbs(overlay.width + 2),
+					Anchor: tuist.AnchorCenter,
+				})
+				statusBar.set("\x1b[7m ? to close keymap \x1b[0m")
+			}
+			ctx.RequestRender(false)
+		}},
+		{key: "v", desc: "toggle verbose", action: func(ctx tuist.Context, _ uv.Key) {
 			log.mu.Lock()
 			log.verbose = !log.verbose
 			v := log.verbose
@@ -107,9 +118,8 @@ func runLogs(initialLines int) error {
 				statusBar.set("\x1b[7m VERBOSE OFF — compact view \x1b[0m")
 			}
 			ctx.RequestRender(false)
-			return true
-
-		case key.Text == "c":
+		}},
+		{key: "c", desc: "toggle color", action: func(ctx tuist.Context, _ uv.Key) {
 			log.mu.Lock()
 			log.colorize = !log.colorize
 			c := log.colorize
@@ -121,21 +131,18 @@ func runLogs(initialLines int) error {
 				statusBar.set("\x1b[7m COLOR OFF — plain text \x1b[0m")
 			}
 			ctx.RequestRender(false)
-			return true
-
-		case key.Text == "a":
+		}},
+		{key: "a", desc: "append 10 lines", action: func(ctx tuist.Context, _ uv.Key) {
 			appendLines(log, 10)
 			statusBar.set("\x1b[7m +10 lines appended \x1b[0m")
 			ctx.RequestRender(false)
-			return true
-
-		case key.Text == "A":
+		}},
+		{key: "A", desc: "append 100 lines", action: func(ctx tuist.Context, _ uv.Key) {
 			appendLines(log, 100)
 			statusBar.set("\x1b[7m +100 lines appended \x1b[0m")
 			ctx.RequestRender(false)
-			return true
-
-		case key.Text == "d":
+		}},
+		{key: "d", desc: "delete 10 lines", action: func(ctx tuist.Context, _ uv.Key) {
 			log.mu.Lock()
 			if len(log.lines) > 10 {
 				log.lines = log.lines[:len(log.lines)-10]
@@ -147,9 +154,8 @@ func runLogs(initialLines int) error {
 			log.Update()
 			statusBar.set(fmt.Sprintf("\x1b[7m deleted 10 lines (now %d) \x1b[0m", n))
 			ctx.RequestRender(false)
-			return true
-
-		case key.Text == "o":
+		}},
+		{key: "o", desc: "toggle overlay", action: func(ctx tuist.Context, _ uv.Key) {
 			if overlayHandle != nil {
 				overlayHandle.Remove()
 				overlayHandle = nil
@@ -176,14 +182,12 @@ func runLogs(initialLines int) error {
 				statusBar.set("\x1b[7m overlay shown (press o to hide) \x1b[0m")
 			}
 			ctx.RequestRender(false)
-			return true
-
-		case key.Text == "r":
+		}},
+		{key: "r", desc: "force redraw", action: func(ctx tuist.Context, _ uv.Key) {
 			statusBar.set("\x1b[7m forced full redraw \x1b[0m")
 			ctx.RequestRender(true)
-			return true
-
-		case len(key.Text) == 1 && key.Text[0] >= '1' && key.Text[0] <= '9':
+		}},
+		{key: "1-9", desc: "continuous repaint line N×10", action: func(ctx tuist.Context, key uv.Key) {
 			stopContinuous()
 			target := int(key.Text[0]-'0') * 10
 			continuousDone = make(chan struct{})
@@ -209,15 +213,23 @@ func runLogs(initialLines int) error {
 					}
 				}
 			}()
-			return true
-
-		case key.Text == "0":
+		}},
+		{key: "0", desc: "stop continuous", action: func(ctx tuist.Context, _ uv.Key) {
 			stopContinuous()
 			statusBar.set("\x1b[7m continuous repaint stopped \x1b[0m")
 			ctx.RequestRender(false)
-			return true
+		}},
+	}
+
+	statusBar.set(km.statusLine())
+
+	// Input handler — delegates to the keymap.
+	tui.AddInputListener(func(ctx tuist.Context, ev uv.Event) bool {
+		kp, ok := ev.(uv.KeyPressEvent)
+		if !ok {
+			return false
 		}
-		return false
+		return km.handle(ctx, uv.Key(kp))
 	})
 
 	fmt.Fprintf(os.Stderr, "Render debug → %s\n", logPath)
@@ -418,4 +430,119 @@ type staticLines struct {
 
 func (s *staticLines) Render(ctx tuist.Context) {
 	ctx.Lines(s.lines...)
+}
+
+// ── keymap ──────────────────────────────────────────────────────────────────
+
+// binding pairs a key label with a match predicate, description, and action.
+type binding struct {
+	key    string                              // display label (e.g. "q", "Ctrl+C", "1-9")
+	desc   string                              // short description for help
+	match  func(uv.Key) bool                   // optional custom matcher (overrides default)
+	action func(ctx tuist.Context, key uv.Key) // handler
+}
+
+type keymap []binding
+
+// handle dispatches a key event to the first matching binding.
+func (km keymap) handle(ctx tuist.Context, key uv.Key) bool {
+	for _, b := range km {
+		if b.matches(key) {
+			b.action(ctx, key)
+			return true
+		}
+	}
+	return false
+}
+
+// matches returns true if key matches this binding.
+func (b *binding) matches(key uv.Key) bool {
+	if b.match != nil {
+		return b.match(key)
+	}
+	// Default: parse the key label.
+	switch b.key {
+	case "Ctrl+C":
+		return key.Code == 'c' && key.Mod == uv.ModCtrl
+	case "1-9":
+		return len(key.Text) == 1 && key.Text[0] >= '1' && key.Text[0] <= '9'
+	default:
+		return key.Text == b.key
+	}
+}
+
+// statusLine renders a compact one-line summary: "?=help key=desc key=desc …"
+func (km keymap) statusLine() string {
+	seen := map[string]bool{}
+	var parts []string
+	for _, b := range km {
+		label := b.key + "=" + b.desc
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		parts = append(parts, label)
+	}
+	return "\x1b[7m " + strings.Join(parts, " ") + " \x1b[0m"
+}
+
+// overlay builds a box-drawn help component for ShowOverlay.
+func (km keymap) overlay() *keymapOverlay {
+	seen := map[string]bool{}
+	type row struct{ key, desc string }
+	var rows []row
+	maxKey := 0
+	for _, b := range km {
+		label := b.key + "\t" + b.desc
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		rows = append(rows, row{b.key, b.desc})
+		if len(b.key) > maxKey {
+			maxKey = len(b.key)
+		}
+	}
+
+	// Compute the content width from the longest row.
+	contentW := 0
+	for _, r := range rows {
+		w := maxKey + 3 + len(r.desc) // "key · desc"
+		if w > contentW {
+			contentW = w
+		}
+	}
+
+	title := "Keymap"
+	if contentW < len(title) {
+		contentW = len(title)
+	}
+
+	boxW := contentW + 4 // "│ " + content + " │"
+
+	var lines []string
+	// Top border with centered title.
+	topPad := contentW - len(title)
+	leftPad := topPad / 2
+	rightPad := topPad - leftPad
+	lines = append(lines, "╭─"+strings.Repeat("─", leftPad)+title+strings.Repeat("─", rightPad)+"─╮")
+
+	for _, r := range rows {
+		padKey := strings.Repeat(" ", maxKey-len(r.key))
+		cell := "\x1b[1m" + r.key + "\x1b[0m" + padKey + " · " + r.desc
+		visW := maxKey + 3 + len(r.desc)
+		trail := strings.Repeat(" ", contentW-visW)
+		lines = append(lines, "│ "+cell+trail+" │")
+	}
+
+	lines = append(lines, "╰"+strings.Repeat("─", boxW-2)+"╯")
+
+	return &keymapOverlay{staticLines: staticLines{lines: lines}, width: boxW}
+}
+
+// keymapOverlay is a staticLines with a precomputed box width so the
+// caller can size the overlay correctly.
+type keymapOverlay struct {
+	staticLines
+	width int
 }
