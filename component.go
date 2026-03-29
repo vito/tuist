@@ -102,7 +102,7 @@ func (ctx Context) Resize(w, h int) Context {
 // output buffer, the position counter does not advance automatically.
 // Call WithOffset with the cumulative line count so that each child
 // gets the correct absolute position for viewport-based optimizations
-// (e.g. [Volatile] offscreen detection).
+// (e.g. viewport-aware rendering).
 func (ctx Context) WithOffset(n int) Context {
 	ctx.absoluteRow += n
 	return ctx
@@ -147,11 +147,10 @@ func (ctx Context) Dispatch(fn func()) {
 // ComponentStat captures render metrics for a single component within
 // a frame.
 type ComponentStat struct {
-	Name      string `json:"name"`
-	RenderUs  int64  `json:"render_us"`
-	Lines     int    `json:"lines"`
-	Cached    bool   `json:"cached"`
-	Offscreen bool   `json:"offscreen,omitempty"`
+	Name     string `json:"name"`
+	RenderUs int64  `json:"render_us"`
+	Lines    int    `json:"lines"`
+	Cached   bool   `json:"cached"`
 }
 
 // componentName returns a short human-readable name for a component.
@@ -442,36 +441,6 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 		return cp.cache.result
 	}
 
-	// Volatile offscreen optimisation: if the component implements
-	// Volatile, is fully above the viewport, and has been rendered at
-	// least once (so we know its height), call OffscreenRender for a
-	// stable placeholder instead of the real Render. We deliberately
-	// do NOT update the component's cache or renderedGen so that when
-	// it scrolls back into the viewport it will re-render via Render().
-	//
-	// absoluteRow is exact (computed from the parent's output line count
-	// at the time of RenderChild), so the check needs no safety margin.
-	if v, ok := ch.(Volatile); ok && ctx.viewportHeight > 0 && cp.cache != nil {
-		cachedLines := len(cp.cache.result.Lines)
-		if ctx.absoluteRow+cachedLines <= ctx.viewportTop {
-			out := &renderOutput{}
-			if stats != nil {
-				start := time.Now()
-				v.OffscreenRender(ctx.withOutput(out))
-				elapsed := time.Since(start)
-				*stats = append(*stats, ComponentStat{
-					Name:      componentName(ch),
-					RenderUs:  elapsed.Microseconds(),
-					Lines:     len(out.lines),
-					Offscreen: true,
-				})
-			} else {
-				v.OffscreenRender(ctx.withOutput(out))
-			}
-			return RenderResult{Lines: out.lines, Cursor: out.cursor}
-		}
-	}
-
 	// Cache miss — render and store. Record the generation we checked,
 	// not the current one, so any Update() during Render() is visible
 	// as a generation mismatch on the next frame.
@@ -634,23 +603,6 @@ type Focusable interface {
 	SetFocused(ctx Context, focused bool)
 }
 
-// Volatile is an optional interface for components that re-render
-// frequently but whose changes are unimportant when offscreen (e.g.
-// spinners, progress bars). When a Volatile component is fully above
-// the visible viewport, the framework calls OffscreenRender instead of
-// Render, producing stable output that prevents unnecessary full
-// redraws in terminal multiplexers like tmux or Vim terminals.
-//
-// OffscreenRender should emit a static placeholder — for example a
-// frozen spinner frame with a label — so the component doesn't look
-// stuck if the user scrolls up to see it. The placeholder should have
-// the same number of lines as the normal Render output.
-//
-// When the component scrolls back into the viewport, normal Render
-// resumes automatically.
-type Volatile interface {
-	OffscreenRender(ctx Context)
-}
 
 // Mounter is an optional interface for components that need to perform
 // setup when they enter a TUI-rooted tree. The Context embeds
