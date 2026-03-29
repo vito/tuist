@@ -1489,38 +1489,13 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 		return
 	}
 
-	// First change above previous viewport — ignore offscreen changes
-	// and only update visible lines. The terminal scrollback becomes stale
-	// but the user can’t see it; a full repaint would force the terminal
-	// to scroll to the bottom, which is the exact UX problem we’re
-	// avoiding.
-	//
-	// Only apply when the viewport is still within the new content
-	// (viewportTop < len(newLines)). After a significant content shrink
-	// the viewport based on maxLinesRendered may be past the end of the
-	// new output, so we fall through to a full redraw.
-	if dr.firstChanged < t.previousViewportTop && viewportTop < len(newLines) {
-		clamped := max(dr.firstChanged, viewportTop)
-		if clamped > dr.lastChanged {
-			// All changes are above the viewport — nothing visible changed.
-			stats.DiffTime = time.Since(diffStart)
-			stats.CacheHits = len(newLines)
-			stats.FirstChangedLine = -1
-			stats.LastChangedLine = -1
-			t.maxLinesRendered = max(t.maxLinesRendered, len(newLines))
-			t.previousViewportTop = max(0, t.maxLinesRendered-height)
-			t.positionHardwareCursor(cursorPos, len(newLines))
-			t.previousLines = newLines
-			emitStats()
-			return
-		}
-		dr.firstChanged = clamped
-		dr.appendStart = false
-	} else if dr.firstChanged < t.previousViewportTop {
-		// Content shrunk significantly — fall back to full redraw.
+	// First change above previous viewport → full redraw.
+	// (When sync output is unavailable, content that overflows the viewport
+	// is rendered on the alt screen, so this path is only reached with sync.)
+	if dr.firstChanged < t.previousViewportTop {
 		stats.FullRedrawReason = fmt.Sprintf(
-			"above_viewport_shrunk:first=%d,vpTop=%d,newLines=%d",
-			dr.firstChanged, t.previousViewportTop, len(newLines),
+			"above_viewport:first=%d,vpTop=%d,prevLines=%d,newLines=%d,height=%d",
+			dr.firstChanged, t.previousViewportTop, len(t.previousLines), len(newLines), height,
 		)
 		t.writeFullRedraw(width, height, newLines, cursorPos, stats, true)
 		emitStats()

@@ -108,8 +108,8 @@ func TestWidthChangeUsesDiffUpdate(t *testing.T) {
 	assert.Equal(t, 1, tui.FullRedraws()) // no additional full redraw
 }
 
-func TestOffscreenChangeIgnored(t *testing.T) {
-	tui, _ := newTestTUI(40, 5) // only 5 rows visible
+func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
+	tui, term := newTestTUI(40, 5) // only 5 rows visible
 
 	// Create enough content to scroll.
 	lines := make([]string, 20)
@@ -126,10 +126,13 @@ func TestOffscreenChangeIgnored(t *testing.T) {
 	// we have 20 lines and 5 rows).
 	comp.lines[0] = "CHANGED"
 	comp.Update()
+	term.reset()
 	tui.RenderOnce()
 
-	// Offscreen changes are silently ignored — no full redraw.
-	assert.Equal(t, 1, tui.FullRedraws())
+	// Should trigger a full redraw because the change is above viewport.
+	assert.Equal(t, 2, tui.FullRedraws())
+	out := term.written.String()
+	assert.Contains(t, out, "\x1b[3J") // scrollback cleared
 }
 
 // volatileComponent is a test component implementing Volatile.
@@ -150,7 +153,7 @@ func (v *volatileComponent) OffscreenRender(ctx Context) {
 	ctx.Line(v.placeholder)
 }
 
-func TestOffscreenVolatileSkipsFullRedraw(t *testing.T) {
+func TestVolatileOffscreenSkipsFullRedraw(t *testing.T) {
 	tui, _ := newTestTUI(40, 5) // only 5 rows visible
 
 	// Put a volatile component at the top, then enough static content
@@ -168,17 +171,27 @@ func TestOffscreenVolatileSkipsFullRedraw(t *testing.T) {
 	tui.RenderOnce()
 	assert.Equal(t, 1, tui.FullRedraws())
 
-	// Frame 2: volatile component changed offscreen. The framework
-	// ignores offscreen diffs — no full redraw.
+	// Frame 2: transition — the volatile component is offscreen and
+	// OffscreenRender returns "placeholder" which differs from the
+	// initial "frame-x". This causes one above-viewport full redraw.
 	vol.Update()
 	tui.RenderOnce()
-	assert.Equal(t, 1, tui.FullRedraws(),
-		"offscreen changes should not trigger full redraws")
+	transitionRedraws := tui.FullRedraws()
+	assert.Equal(t, 2, transitionRedraws, "transition to offscreen placeholder causes one full redraw")
 
-	// Frame 3+: continued offscreen changes — still no full redraws.
+	// Frame 3+: steady state — OffscreenRender returns the same
+	// "placeholder" as frame 2, so the diff sees no changes.
+	// This is the key optimisation: spinner ticks no longer cause
+	// full redraws every 80ms.
 	vol.Update()
 	tui.RenderOnce()
-	assert.Equal(t, 1, tui.FullRedraws())
+	assert.Equal(t, transitionRedraws, tui.FullRedraws(),
+		"subsequent offscreen volatile updates should not trigger full redraws")
+
+	vol.Update()
+	tui.RenderOnce()
+	assert.Equal(t, transitionRedraws, tui.FullRedraws(),
+		"additional offscreen volatile updates should not trigger full redraws")
 }
 
 func TestVolatileOffscreenSeamlessTransition(t *testing.T) {
@@ -339,14 +352,15 @@ func TestVolatileExactPositionWithOwnLines(t *testing.T) {
 		"volatile with exact position should not use OffscreenRender when onscreen")
 }
 
-func TestOffscreenChangeInContainerIgnored(t *testing.T) {
-	// Offscreen changes are ignored at the framework level regardless
-	// of whether the component implements Volatile.
+func TestVolatileExactPositionInContainer(t *testing.T) {
+	// With the output-buffer approach, absoluteRow is exact for all
+	// components. Container children get their position from the
+	// parent's output line count at RenderChild call time.
 	tui, _ := newTestTUI(40, 5)
 
 	// Container with: 10 static lines, 1 volatile, 10 more static.
 	// Total 21 lines, viewport starts at 16. Volatile at line 10:
-	// entirely above viewport.
+	// 10 + 1 = 11 <= 16 → offscreen.
 	top := &staticComponent{lines: make([]string, 10)}
 	for i := range top.lines {
 		top.lines[i] = "top"
@@ -362,16 +376,15 @@ func TestOffscreenChangeInContainerIgnored(t *testing.T) {
 	tui.AddChild(bottom)
 
 	tui.RenderOnce() // initial render
-	assert.Equal(t, 1, tui.FullRedraws())
-
-	// Offscreen changes — no full redraws.
-	vol.Update()
-	tui.RenderOnce()
-	assert.Equal(t, 1, tui.FullRedraws())
+	initialRedraws := tui.FullRedraws()
 
 	vol.Update()
-	tui.RenderOnce()
-	assert.Equal(t, 1, tui.FullRedraws())
+	tui.RenderOnce() // transition
+	vol.Update()
+	tui.RenderOnce() // stable — should not trigger another full redraw
+
+	assert.Equal(t, initialRedraws+1, tui.FullRedraws(),
+		"exact absoluteRow should enable offscreen optimisation via Container")
 }
 
 func TestNoChangeNoOutput(t *testing.T) {
