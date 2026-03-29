@@ -96,6 +96,18 @@ func (ctx Context) Resize(w, h int) Context {
 	return ctx
 }
 
+// WithOffset returns a copy of ctx whose absoluteRow is advanced by n
+// lines. Use this when rendering children via [Compo.RenderChildResult]
+// in a loop: since RenderChildResult does not append to the parent's
+// output buffer, the position counter does not advance automatically.
+// Call WithOffset with the cumulative line count so that each child
+// gets the correct absolute position for viewport-based optimizations
+// (e.g. [Volatile] offscreen detection).
+func (ctx Context) WithOffset(n int) Context {
+	ctx.absoluteRow += n
+	return ctx
+}
+
 // SetFocus gives keyboard focus to the given component (or nil to blur).
 func (ctx Context) SetFocus(comp Component) {
 	ctx.tui.SetFocus(comp)
