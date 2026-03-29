@@ -42,12 +42,6 @@ type Context struct {
 	// Nil outside of Render.
 	output *renderOutput
 
-	// absoluteRow is the absolute line offset of this component's
-	// first line in the full rendered output. Computed exactly by
-	// RenderChild from the parent's output line count at call time.
-	// Used by the volatile-offscreen optimisation.
-	absoluteRow int
-
 	// viewportTop is the first visible line (from the previous frame).
 	// viewportHeight is the terminal height. Together they define the
 	// visible window; volatile offscreen components use them to decide
@@ -96,17 +90,6 @@ func (ctx Context) Resize(w, h int) Context {
 	return ctx
 }
 
-// WithOffset returns a copy of ctx whose absoluteRow is advanced by n
-// lines. Use this when rendering children via [Compo.RenderChildResult]
-// in a loop: since RenderChildResult does not append to the parent's
-// output buffer, the position counter does not advance automatically.
-// Call WithOffset with the cumulative line count so that each child
-// gets the correct absolute position for viewport-based optimizations
-// (e.g. viewport-aware rendering).
-func (ctx Context) WithOffset(n int) Context {
-	ctx.absoluteRow += n
-	return ctx
-}
 
 // SetFocus gives keyboard focus to the given component (or nil to blur).
 func (ctx Context) SetFocus(comp Component) {
@@ -357,7 +340,6 @@ func (c *Compo) renderChild(ctx Context, child Component) RenderResult {
 	// plus the number of lines the parent has emitted so far. This is
 	// exact — no estimation or safety margins needed.
 	childCtx := ctx
-	childCtx.absoluteRow = ctx.absoluteRow + len(ctx.output.lines)
 
 	// Auto-mount children so they get lifecycle hooks and
 	// proper Update() propagation through the TUI.
