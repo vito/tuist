@@ -1,0 +1,39 @@
+[0m[2;90m│ │ │   [0m  [0m[2;90m┆ [0m[36mexperimentalPrivilegedNesting:[0m [0m[31mtrue[0m                                                                                          [0m
+[0m[2;90m│ │ │   [0m  [0m[2;90m┆ [0m[36mexecMD:[0m [0m[33m"{\"ClientID\":\"w6mldbuv05u2udpt0c3bz71y2\",\"SessionID\":\"\",\"SecretToken\":\"\",\"Hostname\":\"\",\"ClientStable[0m
+[0m[2;90m│ │ │   [0m  )[0m[2m: Container![0m[90m = xxh3:55d8c1fbd9e5bec5[0m [0m[2m0.0s[0m [0m[34mCACHED[0m                                                                              [0m
+[0m[2;90m│ │ ├╴[0m[90m●[0m [0m[32m✔[0m .[0m[1mfile[0m([0m[36mpath: [0m[33m"typedefs.json"[0m)[0m[2m: File![0m[90m = xxh3:f8af03f1500daac2[0m [0m[2m0.0s[0m                                                               [0m
+[0m[2;90m│ │ ╰╴[0m[32;7m▼[0m [0m[32m✔[0m .[0m[1mcontents[0m[2m: String![0m[90m = xxh3:93090de3db3eac36[0m [0m[2m0.0s[0m                                                                                [0m
+[0m[2;90m│ │ [0m  [0m[90;7m┇[0m [0m[90m...[0m[1;90m6[0m[90m lines hidden...[0m                                                                                                             [0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m koVeHhoMzo1OTg3ZDg1MDUwYzQxNzdlEnsKFXh4aDM6NWVmMzdlZDI2OTMwZmM1MxJiEg0KCVNvdXJjZU1hcBgBGglzb3VyY2VNYXAiFQoIZmlsZW5hbWUSCToHbWFpbi[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m RsaW5lEgIoEyIMCgZjb2x1bW4SAigBShV4eGgzOjVlZjM3ZWQyNjkzMGZjNTMScgoVeHhoMzo3ODg4Zjc5ZjVmZjU0ZmNiElkKFXh4aDM6ZDAzYjk3MTYwZDFhOTJjMxI[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m lRGVmGAEaDHdpdGhPcHRpb25hbCIOCghvcHRpb25hbBICGAFKFXh4aDM6Nzg4OGY3OWY1ZmY1NGZjYhJGChV4eGgzOjkyNmY4MDM0MzU2NjI4MDYSLRILCgdUeXBlRGVm[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m cGVEZWZKFXh4aDM6OTI2ZjgwMzQzNTY2MjgwNhKiAQoVeHhoMzpiNWY0OTdmNTVkODNiMTRlEogBChV4eGgzOmMyNjQ3Mjc5Y2NlYWM1MmYSDAoIRnVuY3Rpb24YARoPd[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m 2NyaXB0aW9uIjkKC2Rlc2NyaXB0aW9uEio6KFZlcmlmeSB0aGF0IGdlbmVyYXRlZCBjb2RlIGlzIHVwIHRvIGRhdGVKFXh4aDM6YjVmNDk3ZjU1ZDgzYjE0ZRJEChV4eG[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m Y3YWQyNGUzOTk0MGMSKxIKCgZNb2R1bGUYARoGbW9kdWxlShV4eGgzOmJjYWY3YWQyNGUzOTk0MGMShAEKFXh4aDM6YzI2NDcyNzljY2VhYzUyZhJrEgwKCEZ1bmN0aW9[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m 1bmN0aW9uIhMKBG5hbWUSCzoJR2VuZXJhdGVkIiUKCnJldHVyblR5cGUSFwoVeHhoMzo3ODg4Zjc5ZjVmZjU0ZmNiShV4eGgzOmMyNjQ3Mjc5Y2NlYWM1MmYScwoVeHho[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m OTcxNjBkMWE5MmMzEloKFXh4aDM6OTI2ZjgwMzQzNTY2MjgwNhILCgdUeXBlRGVmGAEaCHdpdGhLaW5kIhMKBGtpbmQSCyIJVk9JRF9LSU5EShV4eGgzOmQwM2I5NzE2M[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m zMSuwEKFXh4aDM6ZGY5YTAzMzE2MWU4ZDExMxKhAQoVeHhoMzpiY2FmN2FkMjRlMzk5NDBjEgoKBk1vZHVsZRgBGg93aXRoRGVzY3JpcHRpb24iVAoLZGVzY3JpcHRpb2[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m Zlcnl0aGluZyB5b3UgbmVlZCB0byBkZXZlbG9wIHRoZSBEYWdnZXIgRW5naW5lCmh0dHBzOi8vZGFnZ2VyLmlvCkoVeHhoMzpkZjlhMDMzMTYxZThkMTEzEooBChV4eGg[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m yYzE1NGRiMTI2ZGYScQoVeHhoMzpiNWY0OTdmNTVkODNiMTRlEgwKCEZ1bmN0aW9uGAEaDXdpdGhTb3VyY2VNYXAiJAoJc291cmNlTWFwEhcKFXh4aDM6NWVmMzdlZDI2[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m M0oVeHhoMzplNDk1MmMxNTRkYjEyNmRmEmAKFXh4aDM6ZWYzNGNkNGYxYjY1NWJlYhJHChV4eGgzOmU0OTUyYzE1NGRiMTI2ZGYSDAoIRnVuY3Rpb24YARoJd2l0aENoZ[0m
+[0m[2;90m│ │ [0m  [0m[90;7m┃[0m GgzOmVmMzRjZDRmMWI2NTViZWI="                                                                                                     [0m
+[0m[2;90m│ ╰╴[0m[90m●[0m [0m[32m✔[0m .[0m[1mserve[0m([0m[36mincludeDependencies: [0m[31mtrue[0m)[0m[2m: Void[0m[90m = xxh3:5208def4dcc8ae2f[0m [0m[2m0.0s[0m                                                             [0m
+[0m[2;90m│ [0m                                                                                                                                       [0m
+[0m[2;90m├╴[0m[90m▼[0m [0m[32m✔[0m inspecting module metadata [0m[2m0.1s[0m                                                                                                    [0m
+[0m[2;90m│ ├╴[0m[90m▼[0m [0m[32m✔[0m ModuleSource.[0m[1mkind[0m[2m: ModuleSourceKind![0m[90m = xxh3:c3292c0d306e5ab0[0m [0m[2m0.0s[0m                                                                [0m
+[0m                                                                                                                                         [0m
+[0mgo               A module to develop, build, test Go softwares                                                                           [0m
+[0mgo-sdk           -                                                                                                                       [0m
+[0mhelm             A toolchain to develop and test helm charts                                                                             [0m
+[0minstallers       A toolchain to test Dagger installers                                                                                   [0m
+[0mjava-sdk         -                                                                                                                       [0m
+[0mphp-sdk          Toolchain to develop the Dagger PHP SDK (experimental)                                                                  [0m
+[0mpython-sdk       Toolchain to develop the Dagger Python SDK                                                                              [0m
+[0mrelease          A module that encodes the official release process of the Dagger Engine                                                 [0m
+[0mrust-sdk         Toolchain to develop the Dagger Rust SDK (experimental)                                                                 [0m
+[0msdks             Develop Dagger SDKs                                                                                                     [0m
+[0msecurity         -                                                                                                                       [0m
+[0mtest-split       -                                                                                                                       [0m
+[0mtypescript-sdk   -                                                                                                                       [0m
+[0m                                                                                                                                         [0m
+[0m[1;90mw[0m[90m web · [0m[1;90m←↑↓→[0m[90m move · [0m[1;90mhome[0m[90m first · [0m[1;90mend[0m[90m last · [0m[1;90m+/-[0m[90m verbosity=11 · [0m[1;90mE[0m[90m [0m[31mno exit[0m[90m · [0m[1;90mq[0m[90m quit · [0m[1;90m/[0m[90m search[0m                                             [0m

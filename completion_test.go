@@ -93,7 +93,7 @@ func TestCompletionMenuOverlayRender(t *testing.T) {
 		borderStyle:   defaultBorderStyle(),
 		dimStyle:      defaultDimStyle(),
 	}
-	result := overlay.Render(testContext(80, 24))
+	result := renderComponent(overlay, testContext(80, 24))
 	assert.NotEmpty(t, result.Lines)
 }
 
@@ -102,7 +102,7 @@ func TestCompletionDetailOverlayRender(t *testing.T) {
 		lines:       []string{"Title", "detail"},
 		borderStyle: defaultBorderStyle(),
 	}
-	result := overlay.Render(testContext(40, 20))
+	result := renderComponent(overlay, testContext(40, 20))
 	assert.NotEmpty(t, result.Lines)
 }
 
@@ -110,7 +110,7 @@ func TestCompletionDetailOverlayEmpty(t *testing.T) {
 	overlay := &completionDetailOverlay{
 		borderStyle: defaultBorderStyle(),
 	}
-	result := overlay.Render(testContext(40, 20))
+	result := renderComponent(overlay, testContext(40, 20))
 	assert.Empty(t, result.Lines)
 }
 

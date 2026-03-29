@@ -6,9 +6,10 @@ Go TUI framework (`github.com/vito/tuist`). Not the Swift build tool.
 - Module: `github.com/vito/tuist`
 - Rendering: differential terminal rendering on the normal scrollback buffer
 - Architecture: single UI goroutine processes input, dispatches, and renders; components never need locks
+- Render API: components implement `Render(ctx Context)` and write output via `ctx.Line()`, `ctx.Lines()`, `ctx.SetCursor()`. The framework owns the output buffer and tracks exact line positions for each child.
 - Key files:
   - `tui.go` — main TUI renderer, event loop, differential rendering
-  - `component.go` — Compo, Container, Slot, lifecycle, render caching
+  - `component.go` — Compo, Container, Slot, lifecycle, render caching, Context output buffer
   - `terminal.go` — Terminal interface
   - `overlay.go` — overlay compositing
   - `spinner.go`, `textinput.go` — built-in components

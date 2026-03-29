@@ -14,6 +14,10 @@ type Spinner struct {
 	Style func(string) string
 	// Label is displayed after the spinner frame.
 	Label string
+	// Epoch, if non-zero, is used as the animation start time instead
+	// of the mount time. Set this to a shared value so multiple
+	// spinners animate in sync.
+	Epoch time.Time
 
 	frames   []string
 	interval time.Duration
@@ -31,7 +35,11 @@ func NewSpinner() *Spinner {
 // OnMount starts the spinner animation. The goroutine is bounded by
 // ctx.Done(), which fires when the component is dismounted.
 func (s *Spinner) OnMount(ctx Context) {
-	s.start = time.Now()
+	if !s.Epoch.IsZero() {
+		s.start = s.Epoch
+	} else {
+		s.start = time.Now()
+	}
 	ticker := time.NewTicker(s.interval)
 	go func() {
 		defer ticker.Stop()
@@ -48,15 +56,16 @@ func (s *Spinner) OnMount(ctx Context) {
 	}()
 }
 
-func (s *Spinner) Render(ctx Context) RenderResult {
+func (s *Spinner) Render(ctx Context) {
 	elapsed := time.Since(s.start)
 	idx := int(elapsed/s.interval) % len(s.frames)
 	frame := s.frames[idx]
 	if s.Style != nil {
 		frame = s.Style(frame)
 	}
-	line := frame + " " + s.Label
-	return RenderResult{
-		Lines: []string{line},
+	if s.Label != "" {
+		frame += " " + s.Label
 	}
+	ctx.Line(frame)
 }
+

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +35,15 @@ func newMockTerminal(cols, rows int) *mockTerminal {
 	return &mockTerminal{cols: cols, rows: rows}
 }
 
+// newTestTUI creates a TUI with a mock terminal and sync output enabled.
+// Most tests need sync output on to match expected rendering behavior.
+func newTestTUI(cols, rows int) (*TUI, *mockTerminal) {
+	term := newMockTerminal(cols, rows)
+	tui := New(term)
+	tui.SetSyncOutput(true)
+	return tui, term
+}
+
 func (m *mockTerminal) Start(onInput func([]byte), onResize func()) error {
 	m.onInput = onInput
 	m.onResize = onResize
@@ -57,17 +67,16 @@ type staticComponent struct {
 	cursor *CursorPos
 }
 
-func (s *staticComponent) Render(ctx Context) RenderResult {
-	return RenderResult{
-		Lines:  s.lines,
-		Cursor: s.cursor,
+func (s *staticComponent) Render(ctx Context) {
+	ctx.Lines(s.lines...)
+	if s.cursor != nil {
+		ctx.SetCursor(s.cursor.Row, s.cursor.Col)
 	}
 }
 
 
 func TestFirstRender(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 	tui.AddChild(&staticComponent{lines: []string{"hello", "world"}})
 
 	// Simulate start without goroutines.
@@ -84,8 +93,7 @@ func TestFirstRender(t *testing.T) {
 }
 
 func TestWidthChangeUsesDiffUpdate(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 	tui.AddChild(&staticComponent{lines: []string{"hello"}})
 
 	tui.RenderOnce()
@@ -101,8 +109,7 @@ func TestWidthChangeUsesDiffUpdate(t *testing.T) {
 }
 
 func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
-	term := newMockTerminal(40, 5) // only 5 rows visible
-	tui := New(term)
+	tui, term := newTestTUI(40, 5) // only 5 rows visible
 
 	// Create enough content to scroll.
 	lines := make([]string, 20)
@@ -129,8 +136,7 @@ func TestOffscreenChangeTriggersFullRedraw(t *testing.T) {
 }
 
 func TestNoChangeNoOutput(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 	tui.AddChild(&staticComponent{lines: []string{"stable"}})
 
 	tui.RenderOnce()
@@ -146,8 +152,7 @@ func TestNoChangeNoOutput(t *testing.T) {
 }
 
 func TestOverlayDoesNotStealFocus(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	// Create a main component and give it focus.
 	main := &staticComponent{lines: []string{"main"}}
@@ -262,14 +267,13 @@ type compoComponent struct {
 	renderCount int
 }
 
-func (c *compoComponent) Render(ctx Context) RenderResult {
+func (c *compoComponent) Render(ctx Context) {
 	c.renderCount++
-	return RenderResult{Lines: c.lines}
+	ctx.Lines(c.lines...)
 }
 
 func TestCompoSkipsRenderWhenClean(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	// Two children with Compo: one finalized, one changing.
 	finalized := &compoComponent{lines: []string{"old line 1", "old line 2"}}
@@ -329,8 +333,7 @@ func TestContainerDirtyPropagation(t *testing.T) {
 func TestCompoCachedChildNoRepaint(t *testing.T) {
 	// Verify that a cached Compo child's line range is not repainted
 	// when only other children change.
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	clean := &compoComponent{lines: []string{"stable-1", "stable-2"}}
 	clean.Update()
@@ -357,8 +360,7 @@ func TestCompoCachedChildNoRepaint(t *testing.T) {
 }
 
 func TestUpdatePropagatesAndRequestsRender(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	child := &compoComponent{lines: []string{"hello"}}
 	child.Update()
@@ -385,8 +387,7 @@ func TestUpdatePropagatesAndRequestsRender(t *testing.T) {
 }
 
 func TestForceRender(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 	tui.AddChild(&staticComponent{lines: []string{"content"}})
 
 	tui.RenderOnce()
@@ -414,8 +415,7 @@ func TestConcurrentUpdateNotLost(t *testing.T) {
 	// The generation counter approach eliminates this: renderComponent
 	// records the generation it checked, and any concurrent Update()
 	// increments past it.
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	// A component whose Render calls Update() on itself to simulate
 	// a concurrent update during rendering. On first render it returns
@@ -452,14 +452,14 @@ type updateDuringRenderComponent struct {
 	rendered bool
 }
 
-func (u *updateDuringRenderComponent) Render(ctx Context) RenderResult {
+func (u *updateDuringRenderComponent) Render(ctx Context) {
 	snapshot := u.value
 	if !u.rendered {
 		u.rendered = true
 		u.value = "after"
 		u.Update() // simulate concurrent update
 	}
-	return RenderResult{Lines: []string{snapshot}}
+	ctx.Line(snapshot)
 }
 
 func TestSubwordLeft(t *testing.T) {
@@ -501,8 +501,7 @@ func TestCachedLinesNotMutatedBySegmentReset(t *testing.T) {
 	// If it mutates the cached RenderResult's Lines slice, subsequent
 	// frames see double-reset strings that never match, causing
 	// spurious full redraws.
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	cached := &compoComponent{lines: []string{"stable"}}
 	cached.Update()
@@ -537,8 +536,7 @@ func TestCachedLinesNotMutatedBySegmentReset(t *testing.T) {
 }
 
 func TestHasKittyKeyboard(t *testing.T) {
-	term := newMockTerminal(80, 24)
-	tui := New(term)
+	tui, _ := newTestTUI(80, 24)
 
 	// Before any response, HasKittyKeyboard is false.
 	assert.False(t, tui.HasKittyKeyboard())
@@ -550,6 +548,195 @@ func TestHasKittyKeyboard(t *testing.T) {
 	// Zero flags means no support.
 	tui.dispatchEvent(uv.KeyboardEnhancementsEvent{Flags: 0})
 	assert.False(t, tui.HasKittyKeyboard())
+}
+
+// ── Synchronized output tests ──────────────────────────────────────────────
+
+func TestHasSyncOutputDefault(t *testing.T) {
+	term := newMockTerminal(80, 24)
+	tui := New(term)
+	_ = term // suppress unused
+
+	// Before any DECRPM response, HasSyncOutput defaults to false
+	// (terminals that don't implement DECRQM won't reply).
+	assert.False(t, tui.HasSyncOutput())
+}
+
+func TestSyncOutputDetectedFromDECRPM(t *testing.T) {
+	term := newMockTerminal(80, 24)
+	tui := New(term)
+	_ = term
+
+	// Terminal supports sync output (mode is set or reset = recognized).
+	tui.dispatchEvent(uv.ModeReportEvent{
+		Mode:  ansi.ModeSynchronizedOutput,
+		Value: ansi.ModeReset, // recognized but currently off
+	})
+	assert.True(t, tui.HasSyncOutput())
+
+	// Terminal does not recognize mode 2026.
+	tui.dispatchEvent(uv.ModeReportEvent{
+		Mode:  ansi.ModeSynchronizedOutput,
+		Value: ansi.ModeNotRecognized,
+	})
+	assert.False(t, tui.HasSyncOutput())
+}
+
+func TestNoSyncOutputUsesAltScreen(t *testing.T) {
+	tui, term := newTestTUI(40, 5)
+	tui.SetSyncOutput(false)
+
+	// Build enough content to have a viewport.
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	s := &staticComponent{lines: lines}
+	tui.AddChild(s)
+	tui.RenderOnce()
+
+	// Alt screen should have been entered on first render.
+	assert.True(t, tui.altScreen, "alt screen should be active when sync output is off")
+
+	// Change a line above the viewport. On alt screen, the visible
+	// content (last 5 lines) didn't change, so no terminal writes.
+	s.lines[0] = "CHANGED"
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	assert.Empty(t, out, "above-viewport change should produce no output on alt screen")
+}
+
+func TestSyncOutputSequencesOmittedWhenUnsupported(t *testing.T) {
+	tui, term := newTestTUI(40, 5)
+	tui.SetSyncOutput(false)
+
+	s := &staticComponent{lines: []string{"hello"}}
+	tui.AddChild(s)
+	tui.RenderOnce() // first render
+	term.reset()
+
+	s.lines[0] = "world"
+	s.Update()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	assert.NotContains(t, out, escSyncBegin)
+	assert.NotContains(t, out, escSyncEnd)
+	assert.Contains(t, out, "world")
+}
+
+func TestAltScreenRendering(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	// Force alt screen mode.
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+	tui.enterAltScreen()
+
+	s := &staticComponent{lines: []string{"hello", "world"}}
+	tui.AddChild(s)
+	term.reset()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	assert.Contains(t, out, "hello")
+	assert.Contains(t, out, "world")
+	// No sync sequences on alt screen.
+	assert.NotContains(t, out, escSyncBegin)
+}
+
+func TestAltScreenShrinkNoArtifacts(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+	tui.enterAltScreen()
+
+	// Start with 5 lines filling the screen.
+	s := &staticComponent{lines: []string{"a", "b", "c", "d", "e"}}
+	tui.AddChild(s)
+	tui.RenderOnce()
+
+	// Shrink to 2 lines.
+	s.lines = []string{"x", "y"}
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	assert.Contains(t, out, "x")
+	assert.Contains(t, out, "y")
+	// No full redraw counter should be incremented.
+	assert.Equal(t, 0, tui.FullRedraws())
+}
+
+func TestAltScreenDiffOnlyChangedLines(t *testing.T) {
+	term := newMockTerminal(40, 5)
+	tui := New(term)
+
+	tui.mu.Lock()
+	tui.syncOutputSupported = false
+	tui.mu.Unlock()
+	tui.enterAltScreen()
+
+	s := &staticComponent{lines: []string{"stable", "changing"}}
+	tui.AddChild(s)
+	tui.RenderOnce()
+
+	s.lines = []string{"stable", "CHANGED"}
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	out := term.written.String()
+	// Should contain the changed line but not the stable one.
+	assert.Contains(t, out, "CHANGED")
+	assert.NotContains(t, out, "stable")
+}
+
+func TestNoSyncOutputShrinkClearsStaleLines(t *testing.T) {
+	tui, term := newTestTUI(40, 5)
+	tui.SetSyncOutput(false)
+
+	// Start with 10 lines.
+	lines := make([]string, 10)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	s := &staticComponent{lines: lines}
+	tui.AddChild(s)
+	tui.RenderOnce()
+
+	initialRedraws := tui.FullRedraws()
+
+	// Shrink to 3 lines.
+	s.lines = []string{"a", "b", "c"}
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	// Should NOT trigger a full redraw (would flicker).
+	assert.Equal(t, initialRedraws, tui.FullRedraws(),
+		"shrink should not trigger full redraw without sync output")
+
+	// Subsequent update should work normally (no cascading viewport errors).
+	s.lines = []string{"x", "y", "z"}
+	s.Update()
+	term.reset()
+	tui.RenderOnce()
+
+	assert.Equal(t, initialRedraws, tui.FullRedraws(),
+		"frame after shrink should use differential rendering")
+	out := term.written.String()
+	assert.Contains(t, out, "x")
+	assert.NotContains(t, out, escSyncBegin)
 }
 
 // ── Lifecycle tests ────────────────────────────────────────────────────────
@@ -573,13 +760,12 @@ func (c *lifecycleComponent) OnDismount() {
 	c.dismountCount++
 }
 
-func (c *lifecycleComponent) Render(ctx Context) RenderResult {
-	return RenderResult{Lines: c.lines}
+func (c *lifecycleComponent) Render(ctx Context) {
+	ctx.Lines(c.lines...)
 }
 
 func TestMountOnFirstRender(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -596,8 +782,7 @@ func TestMountOnFirstRender(t *testing.T) {
 }
 
 func TestDismountOnRemoveChild(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -623,8 +808,7 @@ func TestMountPropagatesDownTree(t *testing.T) {
 	container.AddChild(child)
 	assert.False(t, child.mounted, "child should not be mounted before rendering")
 
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 	tui.AddChild(container)
 	assert.False(t, child.mounted, "child should not be mounted before rendering")
 
@@ -634,8 +818,7 @@ func TestMountPropagatesDownTree(t *testing.T) {
 }
 
 func TestDismountPropagatesDownTree(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	child := &lifecycleComponent{lines: []string{"child"}}
 	child.Update()
@@ -651,8 +834,7 @@ func TestDismountPropagatesDownTree(t *testing.T) {
 }
 
 func TestSlotMountDismount(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	a := &lifecycleComponent{lines: []string{"a"}}
 	a.Update()
@@ -674,8 +856,7 @@ func TestSlotMountDismount(t *testing.T) {
 }
 
 func TestMountContextCancelledOnDismount(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	comp := &lifecycleComponent{lines: []string{"hello"}}
 	comp.Update()
@@ -703,8 +884,7 @@ func TestMountContextCancelledOnDismount(t *testing.T) {
 }
 
 func TestContainerClearDismountsAll(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	a := &lifecycleComponent{lines: []string{"a"}}
 	a.Update()
@@ -733,8 +913,8 @@ type interactiveComponent struct {
 	consume bool     // if true, HandleKeyPress returns true
 }
 
-func (c *interactiveComponent) Render(ctx Context) RenderResult {
-	return RenderResult{Lines: c.lines}
+func (c *interactiveComponent) Render(ctx Context) {
+	ctx.Lines(c.lines...)
 }
 
 func (c *interactiveComponent) HandleKeyPress(_ Context, ev uv.KeyPressEvent) bool {
@@ -766,8 +946,7 @@ func (c *interactiveContainer) HandleKeyPress(_ Context, ev uv.KeyPressEvent) bo
 }
 
 func TestBubblingToParent(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	// Build tree: TUI → parent (interactive container) → child.
 	parent := &interactiveContainer{consume: false}
@@ -789,8 +968,7 @@ func TestBubblingToParent(t *testing.T) {
 }
 
 func TestBubblingConsumed(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	parent := &interactiveContainer{consume: false}
 	child := &interactiveComponent{lines: []string{"child"}, consume: true} // consumes
@@ -812,8 +990,7 @@ func TestBubblingConsumed(t *testing.T) {
 func TestBubblingNonInteractiveFocused(t *testing.T) {
 	// When the focused component doesn't implement Interactive,
 	// the event should still bubble to Interactive ancestors.
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	parent := &interactiveContainer{consume: true}
 	// staticComponent doesn't implement Interactive.
@@ -833,8 +1010,7 @@ func TestBubblingNonInteractiveFocused(t *testing.T) {
 }
 
 func TestSpinnerMountDismountLifecycle(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	sp := NewSpinner()
 	slot := NewSlot(nil)
@@ -872,8 +1048,8 @@ type mouseComponent struct {
 	consumeMouse bool
 }
 
-func (m *mouseComponent) Render(ctx Context) RenderResult {
-	return RenderResult{Lines: m.lines}
+func (m *mouseComponent) Render(ctx Context) {
+	ctx.Lines(m.lines...)
 }
 
 func (m *mouseComponent) HandleMouse(ctx Context, ev MouseEvent) bool {
@@ -883,8 +1059,7 @@ func (m *mouseComponent) HandleMouse(ctx Context, ev MouseEvent) bool {
 }
 
 func TestScanMouseZones_MarkersStrippedAndZonesDetected(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	mc := &mouseComponent{lines: []string{"hello"}, consumeMouse: true}
 	tui.AddChild(mc)
@@ -911,8 +1086,7 @@ func TestScanMouseZones_MarkersStrippedAndZonesDetected(t *testing.T) {
 }
 
 func TestScanMouseZones_FullLineComponent(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	mc := &mouseComponent{lines: []string{"hello", "world"}, consumeMouse: true}
 	tui.AddChild(mc)
@@ -939,8 +1113,7 @@ func TestScanMouseZones_FullLineComponent(t *testing.T) {
 }
 
 func TestScanMouseZones_InlineMark(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, _ := newTestTUI(40, 10)
 
 	// An inline MouseEnabled component rendered via RenderChildInline.
 	inline := &mouseComponent{lines: []string{"VALUE"}, consumeMouse: true}
@@ -973,15 +1146,13 @@ type markingParent struct {
 	inline Component
 }
 
-func (p *markingParent) Render(ctx Context) RenderResult {
+func (p *markingParent) Render(ctx Context) {
 	inlined := p.RenderChildInline(ctx, p.inline)
-	line := "prefix" + inlined + "suffix"
-	return RenderResult{Lines: []string{line}}
+	ctx.Line("prefix" + inlined + "suffix")
 }
 
 func TestScanMouseZones_StripsMarkers(t *testing.T) {
-	term := newMockTerminal(40, 10)
-	tui := New(term)
+	tui, term := newTestTUI(40, 10)
 
 	mc := &mouseComponent{lines: []string{"hello"}, consumeMouse: true}
 	tui.AddChild(mc)
@@ -1014,8 +1185,7 @@ func drainForPaste(t *testing.T, ch <-chan uv.Event) uv.PasteEvent {
 }
 
 func TestBracketedPaste(t *testing.T) {
-	term := newMockTerminal(80, 24)
-	tui := New(term)
+	tui, _ := newTestTUI(80, 24)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1034,8 +1204,7 @@ time=2026-03-11T20:28:43.280-04:00 level=WARN msg="failed to get schema for file
 }
 
 func TestBracketedPasteAcrossChunks(t *testing.T) {
-	term := newMockTerminal(80, 24)
-	tui := New(term)
+	tui, _ := newTestTUI(80, 24)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
