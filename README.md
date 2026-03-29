@@ -24,7 +24,7 @@ $ go run github.com/vito/tuist/demos@latest logs     # scrollback stress test, o
 * Components have lifecycle hooks (`OnMount`, `OnDismount`)
 * Components can be hovered and focused (`SetHovered`, `SetFocused`)
 * Components are fully interactive (`HandleKeyPress`, `HandlePaste`, `HandleMouse`)
-* Components render to a framework-owned output buffer via `ctx.Line()`, with an optional cursor position
+* Components render to lines of text and can optionally control the cursor position
 * Component renders are cached, and only re-render when `Compo.Update` is called
 * Output is diffed against previous frame and only changed lines are repainted
 * If content changes off-screen, a full (synchronized) repaint is required (trade-off)

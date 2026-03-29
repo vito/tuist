@@ -122,9 +122,6 @@ type Hoverable  interface { SetHovered(ctx Context, bool) }
 
 // Bracketed paste.
 type Pasteable  interface { HandlePaste(ctx Context, ev uv.PasteEvent) bool }
-
-// Volatile components return stable placeholders when offscreen.
-type Volatile   interface { OffscreenRender(ctx Context) }
 ```
 
 ## composition
