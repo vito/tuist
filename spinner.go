@@ -63,7 +63,10 @@ func (s *Spinner) Render(ctx Context) {
 	if s.Style != nil {
 		frame = s.Style(frame)
 	}
-	ctx.Line(frame + " " + s.Label)
+	if s.Label != "" {
+		frame += " " + s.Label
+	}
+	ctx.Line(frame)
 }
 
 // OffscreenRender returns a static placeholder frame so offscreen
