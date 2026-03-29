@@ -1317,6 +1317,24 @@ func (t *TUI) RenderOnce() {
 	t.doRender()
 }
 
+// RenderLines renders the component tree with no width constraint and no
+// viewport, returning the output as lines. Overlays, mouse zones, and
+// diffing are skipped. With no viewport, Volatile components always use
+// their static (offscreen) frames.
+//
+// This is intended for final/one-shot rendering where the output will be
+// written directly to a file or terminal without the TUI's differential
+// update machinery. Safe to call after Stop().
+func (t *TUI) RenderLines() []string {
+	ctx := Context{
+		Context: context.Background(),
+		tui:     t,
+		output:  &renderOutput{},
+	}
+	result := renderComponent(&t.Container, ctx)
+	return result.Lines
+}
+
 func (t *TUI) doRender() {
 	totalStart := time.Now()
 
