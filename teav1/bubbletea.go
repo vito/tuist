@@ -38,7 +38,7 @@ type Wrap struct {
 // ensuring commands are dispatched on the UI goroutine.
 func New(model tea.Model) *Wrap {
 	b := &Wrap{model: model}
-	b.Compo.Update()
+	b.Update()
 	return b
 }
 
@@ -71,7 +71,7 @@ func (b *Wrap) SendMsg(msg tea.Msg) {
 func (b *Wrap) updateModel(msg tea.Msg) {
 	var cmd tea.Cmd
 	b.model, cmd = b.model.Update(msg)
-	b.Compo.Update()
+	b.Update()
 	if cmd != nil {
 		b.execCmd(cmd)
 	}
