@@ -64,7 +64,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open debug log: %w", err)
 	}
-	defer debugFile.Close()
+	defer func() { _ = debugFile.Close() }()
 	tui.SetDebugWriter(debugFile)
 
 	// Build a list of programming languages.

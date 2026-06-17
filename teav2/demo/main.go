@@ -40,7 +40,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open debug log: %w", err)
 	}
-	defer debugFile.Close()
+	defer func() {
+		if err := debugFile.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close debug log: %v\n", err)
+		}
+	}()
 	tui.SetDebugWriter(debugFile)
 
 	// ── List ───────────────────────────────────────────────────
