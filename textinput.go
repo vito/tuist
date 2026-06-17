@@ -53,6 +53,23 @@ type TextInput struct {
 	// Return true to consume the event (TextInput won't handle it).
 	// Return false to let TextInput handle it normally.
 	KeyInterceptor func(ctx Context, ev uv.KeyPressEvent) bool
+
+	// Highlight, if set, is called with the current value before each render
+	// and returns styling spans applied to the rendered text (e.g. syntax
+	// highlighting). Spans address rune ranges of the value; styling is
+	// applied per visual segment so it survives word wrapping. The Style
+	// function must only add coloring/attributes — it must NOT change the
+	// visible width of its argument, or cursor positioning will drift.
+	Highlight func(value string) []StyleSpan
+}
+
+// StyleSpan styles a half-open rune range [Start, End) of a TextInput's
+// value. When spans overlap, later spans in the slice win per rune.
+type StyleSpan struct {
+	Start, End int
+	// Style wraps a substring of the value in styling (e.g. ANSI color).
+	// It must preserve the visible width of its input.
+	Style func(string) string
 }
 
 // NewTextInput creates a TextInput with the given prompt.
@@ -154,6 +171,25 @@ func (t *TextInput) Render(ctx Context) {
 	promptW := VisibleWidth(prompt)
 	contPromptW := VisibleWidth(contPrompt)
 
+	// Resolve highlight spans into a per-rune style index over the value.
+	// styleIdx[r] is the index of the winning span for rune r, or -1.
+	var spans []StyleSpan
+	var styleIdx []int
+	if t.Highlight != nil {
+		if spans = t.Highlight(val); len(spans) > 0 {
+			styleIdx = make([]int, len(t.value))
+			for i := range styleIdx {
+				styleIdx[i] = -1
+			}
+			for si, sp := range spans {
+				s, e := max(sp.Start, 0), min(sp.End, len(styleIdx))
+				for r := s; r < e; r++ {
+					styleIdx[r] = si
+				}
+			}
+		}
+	}
+
 	var lineCount int
 	var cursorRow, cursorCol int
 	runeOffset := 0
@@ -184,7 +220,11 @@ func (t *TextInput) Render(ctx Context) {
 
 			var buf strings.Builder
 			buf.WriteString(p)
-			buf.WriteString(seg.text)
+			if styleIdx != nil {
+				buf.WriteString(styleSegment(lineRunes[seg.runeStart:seg.runeEnd], runeOffset+seg.runeStart, styleIdx, spans))
+			} else {
+				buf.WriteString(seg.text)
+			}
 
 			// Ghost suggestion on the very last visual line.
 			if isLastInputLine && isLastSeg && t.Suggestion != "" && t.cursor == len(t.value) {
@@ -216,6 +256,37 @@ func (t *TextInput) Render(ctx Context) {
 	if t.focused {
 		ctx.SetCursor(cursorRow, cursorCol)
 	}
+}
+
+// styleSegment renders the runes of one visual segment, applying highlight
+// spans. base is the absolute rune offset of runes[0] within the value;
+// styleIdx maps each value rune to its winning span index (-1 = none).
+// Consecutive runes sharing a span are coalesced so styling is emitted once
+// per run rather than per rune.
+func styleSegment(runes []rune, base int, styleIdx []int, spans []StyleSpan) string {
+	var buf strings.Builder
+	for i := 0; i < len(runes); {
+		idx := styleAt(styleIdx, base+i)
+		j := i + 1
+		for j < len(runes) && styleAt(styleIdx, base+j) == idx {
+			j++
+		}
+		text := string(runes[i:j])
+		if idx >= 0 && spans[idx].Style != nil {
+			buf.WriteString(spans[idx].Style(text))
+		} else {
+			buf.WriteString(text)
+		}
+		i = j
+	}
+	return buf.String()
+}
+
+func styleAt(styleIdx []int, r int) int {
+	if r < 0 || r >= len(styleIdx) {
+		return -1
+	}
+	return styleIdx[r]
 }
 
 // HandleKeyPress implements [Interactive].
