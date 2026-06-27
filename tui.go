@@ -238,6 +238,10 @@ type TUI struct {
 	renderCh   chan struct{} // coalesced render requests
 	loopDone   chan struct{} // closed when runLoop exits
 
+	// injected holds events queued by Inject for the next Step, in the
+	// headless (no event loop) driving model. Only touched synchronously.
+	injected []uv.Event
+
 	// ── Lifecycle ──
 
 	stopCtx    context.Context    // cancelled by Stop() to signal shutdown
