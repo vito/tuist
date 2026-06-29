@@ -193,6 +193,7 @@ type TUI struct {
 
 	previousLines    []string
 	previousWidth    int
+	prevHeight       int // terminal height of the last applied frame; 0 before the first
 	focusedComponent Component
 	inputListeners   []inputListenerEntry
 
@@ -1449,6 +1450,24 @@ func (t *TUI) applyFrame(width, height int, newLines []string, cursorPos *Cursor
 		t.emitDebugStats(t.debugWriter, stats, compStats, totalStart, memBefore)
 	}
 
+	// A height change means the terminal was resized. The differential renderer
+	// positions writes with cursor moves relative to the previous frame's
+	// geometry (hardwareCursorRow, previousViewportTop, maxLinesRendered) -- all
+	// computed against the old height. After a resize those land on the wrong
+	// rows, so trailing lines from the taller frame are never cleared and show
+	// through as ghosts. Repaint from a cleared screen to rebuild the model
+	// cleanly. Resizes are rare, so the full redraw is negligible. (The
+	// alt-screen path positions absolutely and clears to the new height, so it
+	// needs no equivalent.)
+	if t.prevHeight != 0 && height != t.prevHeight {
+		stats.FullRedrawReason = fmt.Sprintf("resize:prevHeight=%d,height=%d", t.prevHeight, height)
+		t.writeFullRedraw(width, height, newLines, cursorPos, stats, true)
+		t.prevHeight = height
+		emitStats()
+		return
+	}
+	t.prevHeight = height
+
 	// Full redraw needed?
 	if reason, clear := t.needsFullRedraw(newLines); reason != "" {
 		if !t.hasSyncOutput() && clear {
@@ -1872,6 +1891,7 @@ func (t *TUI) applyFrameAltScreen(width, height int, newLines []string, cursorPo
 	t.maxLinesRendered = len(newLines)
 	t.previousViewportTop = viewportTop
 	t.previousLines = newLines
+	t.prevHeight = height
 
 	// Position hardware cursor for the component's cursor (if any).
 	t.positionHardwareCursorAltScreen(cursorPos, viewportTop, height)
