@@ -37,6 +37,11 @@ type Context struct {
 	tui    *TUI
 	source Component
 
+	// heightTracker is the component currently rendering, set by
+	// renderComponent. ScreenHeight() flags it so the cache knows the render
+	// depended on the terminal height. Nil outside a render.
+	heightTracker *Compo
+
 	// output is the render output buffer for the current component.
 	// During Render, components write lines into this via Line/Lines.
 	// Nil outside of Render.
@@ -77,6 +82,24 @@ func (ctx Context) SetCursor(row, col int) {
 // Components that render inline but want to fill the viewport can use
 // this. Returns 0 if the component is not mounted in a TUI.
 func (ctx Context) ScreenHeight() int {
+	if ctx.tui == nil {
+		return 0
+	}
+	// Record the read so the cache re-renders this component when the height
+	// changes; without it a height-only resize would reuse a stale layout. Mark
+	// the whole ancestor chain too: a cached parent skips re-rendering (and so
+	// re-invoking) this component, which would leave the dependency unchecked.
+	// This mirrors how Update() propagates dirtiness upward.
+	for c := ctx.heightTracker; c != nil; c = c.parent {
+		c.readScreenHeight = true
+	}
+	return ctx.tui.screenHeight
+}
+
+// screenHeight reads the terminal height without recording a dependency. Used
+// by the framework's cache bookkeeping, which must not mark components as
+// height-dependent merely by inspecting the value.
+func (ctx Context) screenHeight() int {
 	if ctx.tui != nil {
 		return ctx.tui.screenHeight
 	}
@@ -89,7 +112,6 @@ func (ctx Context) Resize(w, h int) Context {
 	ctx.Height = h
 	return ctx
 }
-
 
 // SetFocus gives keyboard focus to the given component (or nil to blur).
 func (ctx Context) SetFocus(comp Component) {
@@ -221,13 +243,19 @@ func markLines(comp Component, lines []string) []string {
 // counter past the snapshot, guaranteeing a re-render on the next
 // frame — no store-ordering subtleties required.
 type Compo struct {
-	generation    atomic.Int64
-	renderedGen   int64        // generation when last rendered; render-goroutine only
-	cache         *renderCache // only accessed from the render goroutine
-	parent        *Compo
-	self          Component    // the Component that embeds this Compo; set by RenderChild
-	requestRender func()       // set on the root by TUI
-	markerID      atomic.Int64 // unique zone marker ID, lazy-allocated
+	generation  atomic.Int64
+	renderedGen int64        // generation when last rendered; render-goroutine only
+	cache       *renderCache // only accessed from the render goroutine
+	// readScreenHeight records, during a render, whether this component read
+	// the terminal height via [Context.ScreenHeight]. It is captured into the
+	// cache so a height-only resize re-renders exactly the components that
+	// depend on the height, the way a width change re-renders width-dependent
+	// ones. Render-goroutine only.
+	readScreenHeight bool
+	parent           *Compo
+	self             Component    // the Component that embeds this Compo; set by RenderChild
+	requestRender    func()       // set on the root by TUI
+	markerID         atomic.Int64 // unique zone marker ID, lazy-allocated
 
 	// Double-buffered line slices for zero-allocation rendering.
 	// renderComponent alternates between lineBufs[0] and lineBufs[1]
@@ -260,6 +288,10 @@ type Compo struct {
 type renderCache struct {
 	result RenderResult
 	width  int
+	// screenHeight is the terminal height the cached render saw; only
+	// consulted when usesScreenHeight is set (the render read it).
+	screenHeight     int
+	usesScreenHeight bool
 }
 
 // Update marks the component as needing re-render on the next frame.
@@ -411,7 +443,8 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	stats := cp.componentStats
 
 	gen := cp.generation.Load()
-	if cp.cache != nil && gen == cp.renderedGen && cp.cache.width == ctx.Width {
+	if cp.cache != nil && gen == cp.renderedGen && cp.cache.width == ctx.Width &&
+		(!cp.cache.usesScreenHeight || cp.cache.screenHeight == ctx.screenHeight()) {
 		// Cache hit — skip Render entirely.
 		if stats != nil {
 			*stats = append(*stats, ComponentStat{
@@ -439,6 +472,10 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 
 	out := &renderOutput{lines: cp.lineBufs[cp.bufIdx][:0]}
 	renderCtx := ctx.withOutput(out)
+	// Track height reads during this render so the cache key picks up
+	// ScreenHeight() the way it already picks up width.
+	cp.readScreenHeight = false
+	renderCtx.heightTracker = cp
 
 	if stats != nil {
 		start := time.Now()
@@ -456,7 +493,12 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	r := RenderResult{Lines: out.lines, Cursor: out.cursor}
 	// Save back in case append grew the slice.
 	cp.lineBufs[cp.bufIdx] = r.Lines
-	cp.cache = &renderCache{result: r, width: ctx.Width}
+	cp.cache = &renderCache{
+		result:           r,
+		width:            ctx.Width,
+		screenHeight:     ctx.screenHeight(),
+		usesScreenHeight: cp.readScreenHeight,
+	}
 	cp.renderedGen = gen
 
 	// Dismount render children that were present last frame but not this
@@ -584,7 +626,6 @@ type Hoverable interface {
 type Focusable interface {
 	SetFocused(ctx Context, focused bool)
 }
-
 
 // Mounter is an optional interface for components that need to perform
 // setup when they enter a TUI-rooted tree. The Context embeds

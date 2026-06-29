@@ -208,6 +208,47 @@ func TestGolden_NoChangeStable(t *testing.T) {
 	golden.Assert(t, term.Render(), "golden/no_change_stable.golden")
 }
 
+// heightLines renders one line per terminal row, each tagged with the height it
+// was rendered at, so a row left over from a taller render is detectable.
+type heightLines struct {
+	tuist.Compo
+}
+
+func (c *heightLines) Render(ctx tuist.Context) {
+	h := ctx.ScreenHeight()
+	for i := 0; i < h; i++ {
+		ctx.Line(fmt.Sprintf("row-%02d-h%d", i, h))
+	}
+}
+
+// TestHeightShrinkClearsGhostRows guards against ghost lines after a vertical
+// resize: the differential renderer positions writes relative to the previous
+// frame's geometry, so a height shrink used to leave the taller frame's
+// trailing rows on screen. After the shrink only the new, shorter frame must
+// remain.
+func TestHeightShrinkClearsGhostRows(t *testing.T) {
+	term := vt.New(40, 10)
+	tui := tuist.New(term)
+	tui.SetSyncOutput(true)
+	tui.AddChild(&heightLines{})
+	tui.RenderOnce()
+	if !strings.Contains(term.Render(), "row-09-h10") {
+		t.Fatalf("tall frame should fill all ten rows:\n%s", term.Render())
+	}
+
+	// Shrink to four rows: the component now renders four lines. The six rows
+	// the taller frame drew must not show through.
+	term.VT.Resize(4, 40)
+	tui.RenderOnce()
+	screen := term.Render()
+	if strings.Contains(screen, "h10") {
+		t.Fatalf("ghost rows from the taller render bled through after shrink:\n%s", screen)
+	}
+	if !strings.Contains(screen, "row-03-h4") {
+		t.Fatalf("shrunk frame missing its own content:\n%s", screen)
+	}
+}
+
 func TestGolden_WidthChange(t *testing.T) {
 	term := vt.New(40, 5)
 	tui := tuist.New(term)
