@@ -1,6 +1,7 @@
 package tuist
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -113,4 +114,55 @@ func TestHeadlessResizeReflows(t *testing.T) {
 	// Frame reads the new dimensions without draining input/dispatch.
 	_ = tui.Frame()
 	assert.Equal(t, 5, tui.screenHeight)
+}
+
+// heightLeaf renders the terminal height it read; renders counts how many times
+// it actually re-rendered (vs. served from cache).
+type heightLeaf struct {
+	Compo
+	renders int
+}
+
+func (c *heightLeaf) Render(ctx Context) {
+	c.renders++
+	ctx.Lines("h=" + strconv.Itoa(ctx.ScreenHeight()))
+}
+
+// plainWrapper renders a child but never reads the height itself, so on a
+// height-only resize its own (generation, width) cache key is unchanged. It
+// models a cached ancestor that must still re-invoke a height-dependent child.
+type plainWrapper struct {
+	Compo
+	child Component
+}
+
+func (w *plainWrapper) Render(ctx Context) { w.RenderChild(ctx, w.child) }
+
+// TestHeadlessResizeRerendersHeightDependentChild guards the framework's
+// height-aware caching: a component that reads ScreenHeight must re-render on a
+// height-only resize (width unchanged) even when nested under a parent that
+// does not read it. Without upward dependency propagation the cached wrapper
+// short-circuits and the child keeps its first-paint layout.
+func TestHeadlessResizeRerendersHeightDependentChild(t *testing.T) {
+	term := NewHeadlessTerminal(40, 10)
+	tui := New(term)
+	leaf := &heightLeaf{}
+	tui.AddChild(&plainWrapper{child: leaf})
+
+	require.Contains(t, strings.Join(tui.Step(), "\n"), "h=10")
+	rendersAfterFirst := leaf.renders
+
+	// Height-only resize: width stays 40, so only the height key can force the
+	// re-render.
+	term.Resize(40, 5)
+	frame := strings.Join(tui.Step(), "\n")
+	assert.Contains(t, frame, "h=5", "height-dependent child should reflow on a height-only resize")
+	assert.Greater(t, leaf.renders, rendersAfterFirst, "child should have re-rendered, not served stale cache")
+
+	// A no-op resize (same dimensions) must NOT force a re-render -- the cache
+	// should still hold when the height is unchanged.
+	rendersBeforeNoop := leaf.renders
+	term.Resize(40, 5)
+	_ = tui.Step()
+	assert.Equal(t, rendersBeforeNoop, leaf.renders, "unchanged height should stay cached")
 }
