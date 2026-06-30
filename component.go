@@ -446,6 +446,22 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 	if cp.cache != nil && gen == cp.renderedGen && cp.cache.width == ctx.Width &&
 		(!cp.cache.usesScreenHeight || cp.cache.screenHeight == ctx.screenHeight()) {
 		// Cache hit — skip Render entirely.
+		//
+		// But if this cached subtree depends on ScreenHeight, the ancestor
+		// currently rendering us must inherit that dependency. A live
+		// ScreenHeight() read propagates up the heightTracker chain (see
+		// Context.ScreenHeight); a cache hit skips Render, so it never makes that
+		// call. Without re-propagating here, an ancestor that re-renders on a
+		// frame where we cache-hit (e.g. a sibling updated) would store
+		// usesScreenHeight=false, then cache-hit across a later resize and freeze
+		// this whole subtree at a stale height. Mark the chain the same way a
+		// read would, so the height change invalidates the ancestors too and they
+		// re-invoke us, whose own cache check then fires the miss.
+		if cp.cache.usesScreenHeight {
+			for c := ctx.heightTracker; c != nil; c = c.parent {
+				c.readScreenHeight = true
+			}
+		}
 		if stats != nil {
 			*stats = append(*stats, ComponentStat{
 				Name:   componentName(ch),

@@ -166,3 +166,58 @@ func TestHeadlessResizeRerendersHeightDependentChild(t *testing.T) {
 	_ = tui.Step()
 	assert.Equal(t, rendersBeforeNoop, leaf.renders, "unchanged height should stay cached")
 }
+
+// updatableLeaf is a sibling whose Update() forces the shared parent to
+// re-render on a frame where the height-dependent leaf is served from cache.
+type updatableLeaf struct {
+	Compo
+	n int
+}
+
+func (u *updatableLeaf) Render(ctx Context) { ctx.Lines("n=" + strconv.Itoa(u.n)) }
+
+// twoChildWrapper renders two children and never reads the height itself.
+type twoChildWrapper struct {
+	Compo
+	a, b Component
+}
+
+func (w *twoChildWrapper) Render(ctx Context) {
+	w.RenderChild(ctx, w.a)
+	w.RenderChild(ctx, w.b)
+}
+
+// TestHeadlessResizeReflowsAfterSiblingUpdate guards the subtler half of
+// height-aware caching: the parent's dependency on a height-reading child must
+// survive a frame where that child is served from cache. A sibling Update()
+// re-renders the parent while the height leaf cache-hits -- and a cache hit
+// never calls ScreenHeight(), so the parent would record usesScreenHeight=false
+// and then cache-hit across the next resize, freezing the leaf at a stale
+// height. (Reproduced from a real trace: a ticking keymap bar kept re-rendering
+// the root with the body cached, so resizes stopped reflowing.)
+func TestHeadlessResizeReflowsAfterSiblingUpdate(t *testing.T) {
+	term := NewHeadlessTerminal(40, 10)
+	tui := New(term)
+	leaf := &heightLeaf{}
+	sibling := &updatableLeaf{}
+	tui.AddChild(&twoChildWrapper{a: leaf, b: sibling})
+
+	require.Contains(t, strings.Join(tui.Step(), "\n"), "h=10")
+
+	// Sibling update: the wrapper re-renders, the height leaf is served from
+	// cache. This is the frame that used to reset the wrapper's height
+	// dependency.
+	sibling.n++
+	sibling.Update()
+	frame := strings.Join(tui.Step(), "\n")
+	require.Contains(t, frame, "n=1")
+	require.Contains(t, frame, "h=10")
+
+	// Height-only resize: the wrapper must still know it contains a
+	// height-dependent child and re-invoke it.
+	rendersBefore := leaf.renders
+	term.Resize(40, 5)
+	frame = strings.Join(tui.Step(), "\n")
+	assert.Contains(t, frame, "h=5", "height child must reflow after a sibling update re-rendered the parent")
+	assert.Greater(t, leaf.renders, rendersBefore, "height child should re-render, not stay cached")
+}
