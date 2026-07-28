@@ -7,7 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/charmbracelet/ultraviolet v0.0.0-20260720091822-7cc6674724ac
-	github.com/vito/tuist v0.0.9
+	github.com/vito/tuist v0.0.10
 )
 
 require (

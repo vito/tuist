@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260720091822-7cc6674724ac
-	github.com/vito/tuist v0.0.9
+	github.com/vito/tuist v0.0.10
 )
 
 require (
