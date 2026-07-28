@@ -2,13 +2,42 @@
 package teav1
 
 import (
+	"reflect"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	uv "github.com/charmbracelet/ultraviolet"
 
 	"github.com/vito/tuist"
 )
+
+// bubbletea's Batch and Sequence produce runtime-internal messages that the
+// real event loop unrolls itself — a model never sees them, so handing them
+// to Update silently drops them. BatchMsg is exported, but sequenceMsg is
+// not, so it can't be matched with a type assertion. It can, however, be
+// learned from the public API: tea.Sequence with two non-nil commands must
+// return one (compactCmds returns a single command directly, and a slice
+// otherwise). Matching on the learned reflect.Type is exact and survives the
+// unexported name changing. Same trick for tea.WindowSize's internal size
+// request. TestSequenceTypeLearned re-verifies both against whatever
+// bubbletea version is actually linked.
+var (
+	teaNoop           tea.Cmd = func() tea.Msg { return nil }
+	sequenceMsgType           = reflect.TypeOf(tea.Sequence(teaNoop, teaNoop)())
+	windowSizeReqType         = reflect.TypeOf(tea.WindowSize()())
+	cmdSliceType              = reflect.TypeOf([]tea.Cmd(nil))
+)
+
+// asSequence unwraps bubbletea's internal sequenceMsg. Its underlying type
+// is []Cmd, so a reflect conversion recovers the commands without access to
+// the unexported type itself.
+func asSequence(msg tea.Msg) ([]tea.Cmd, bool) {
+	if reflect.TypeOf(msg) != sequenceMsgType {
+		return nil, false
+	}
+	return reflect.ValueOf(msg).Convert(cmdSliceType).Interface().([]tea.Cmd), true
+}
 
 // Wrap wraps a bubbletea v1 model as a tuist Component. It bridges
 // the two frameworks:
@@ -30,12 +59,14 @@ type Wrap struct {
 	width    int
 	height   int
 	onQuit   func()
-	dispatch func(func()) // set on mount; schedules work on the UI goroutine
+	dispatch func(func()) // schedules work on the UI goroutine; see ready
+	inited   bool         // model.Init() has run
+	pending  []tea.Cmd    // commands issued before a dispatcher was available
 }
 
 // New wraps a bubbletea v1 model as a tuist Component.
-// The model's Init() is called when the component is mounted (OnMount),
-// ensuring commands are dispatched on the UI goroutine.
+// The model's Init() is called before the model sees anything else — a
+// render, a key, or a paste — whichever comes first.
 func New(model tea.Model) *Wrap {
 	b := &Wrap{model: model}
 	b.Update()
@@ -48,13 +79,37 @@ func (b *Wrap) OnQuit(fn func()) {
 	b.onQuit = fn
 }
 
-// OnMount captures the dispatch function for scheduling command results
-// back on the UI goroutine, and calls the model's Init().
-func (b *Wrap) OnMount(ctx tuist.Context) {
-	b.dispatch = ctx.Dispatch
-	if cmd := b.model.Init(); cmd != nil {
-		b.execCmd(cmd)
+// ready captures the dispatch function and runs the model's Init(), each
+// exactly once. OnMount and the input callbacks all call it first.
+//
+// It cannot live in OnMount alone. Components mount lazily, on the first
+// render after being added, but [TUI.SetFocus] can hand a component focus the
+// moment it is added — so a key press buffered by the terminal is delivered
+// before the mount. Initializing here means the model is always initialized
+// before it sees a message, and a dispatcher is always in place before a
+// command runs, so no type-ahead is silently dropped.
+//
+// Always runs on the UI goroutine.
+func (b *Wrap) ready(ctx tuist.Context) {
+	if b.dispatch != nil && b.inited {
+		return
 	}
+	if b.dispatch == nil {
+		b.dispatch = ctx.Dispatch
+	}
+	if !b.inited {
+		b.inited = true
+		if cmd := b.model.Init(); cmd != nil {
+			b.execCmd(cmd)
+		}
+	}
+	b.flushPending()
+}
+
+// OnMount readies the component when it enters the tree, for the common case
+// where nothing reached it before its first render.
+func (b *Wrap) OnMount(ctx tuist.Context) {
+	b.ready(ctx)
 }
 
 // Model returns the underlying bubbletea v1 model.
@@ -78,30 +133,109 @@ func (b *Wrap) updateModel(msg tea.Msg) {
 }
 
 func (b *Wrap) execCmd(cmd tea.Cmd) {
+	// Read the dispatcher here, on the UI goroutine: reading b.dispatch from
+	// the command goroutine would race with ready's write.
+	dispatch := b.dispatch
+	if dispatch == nil {
+		// Nowhere to schedule the result yet (SendMsg before the component was
+		// ever mounted or focused). Hold the command until ready supplies a
+		// dispatcher rather than running it and dropping its message.
+		b.pending = append(b.pending, cmd)
+		return
+	}
 	go func() {
-		msg := cmd()
-		if msg == nil {
-			return
-		}
-		if _, ok := msg.(tea.QuitMsg); ok {
-			if b.dispatch != nil {
-				b.dispatch(func() {
-					if b.onQuit != nil {
-						b.onQuit()
-					}
-				})
-			}
-			return
-		}
-		if b.dispatch != nil {
-			b.dispatch(func() {
-				b.updateModel(msg)
-			})
-		}
+		b.deliver(dispatch, cmd())
 	}()
 }
 
+// deliver routes a command's resulting message the way bubbletea's own event
+// loop (execBatchMsg/execSequenceMsg) would, instead of handing
+// runtime-internal messages to the model:
+//
+//   - tea.QuitMsg fires OnQuit
+//   - tea.BatchMsg runs its commands concurrently and waits for them — the
+//     wait is what makes a batch nested in a sequence block the sequence,
+//     matching bubbletea; at the top level it's unobservable
+//   - sequenceMsg (tea.Sequence) runs its commands one at a time, in order,
+//     recursing so nested batches and sequences complete before it continues
+//   - a size request (tea.WindowSize) is answered with the last rendered
+//     size; before the first render it's dropped, since that render sends
+//     its own tea.WindowSizeMsg anyway
+//   - anything else goes to the model's Update on the UI goroutine
+//
+// One deviation: bubbletea stops delivering once quit is processed, whereas
+// commands after a QuitMsg here still run and deliver — updates to a
+// dismounted component are harmless no-ops.
+//
+// Runs off the UI goroutine.
+func (b *Wrap) deliver(dispatch func(func()), msg tea.Msg) {
+	if msg == nil {
+		return
+	}
+	if _, ok := msg.(tea.QuitMsg); ok {
+		dispatch(func() {
+			if b.onQuit != nil {
+				b.onQuit()
+			}
+		})
+		return
+	}
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var wg sync.WaitGroup
+		for _, cmd := range batch {
+			if cmd == nil {
+				continue
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				b.deliver(dispatch, cmd())
+			}()
+		}
+		wg.Wait()
+		return
+	}
+	if cmds, ok := asSequence(msg); ok {
+		for _, cmd := range cmds {
+			if cmd == nil {
+				continue
+			}
+			b.deliver(dispatch, cmd())
+		}
+		return
+	}
+	if reflect.TypeOf(msg) == windowSizeReqType {
+		dispatch(func() {
+			if b.width > 0 {
+				b.updateModel(tea.WindowSizeMsg{Width: b.width, Height: b.height})
+			}
+		})
+		return
+	}
+	dispatch(func() {
+		b.updateModel(msg)
+	})
+}
+
+// flushPending runs commands that were issued before a dispatcher existed, in
+// the order they were issued. Runs on the UI goroutine.
+func (b *Wrap) flushPending() {
+	if len(b.pending) == 0 {
+		return
+	}
+	cmds := b.pending
+	b.pending = nil
+	for _, cmd := range cmds {
+		b.execCmd(cmd)
+	}
+}
+
 // Render implements tuist.Component.
+//
+// It deliberately does not call ready: renderChild mounts before it renders,
+// so OnMount has always run by now, and a render Context is the one Context
+// that can carry a nil TUI (a child rendered under an unmounted parent) — its
+// Dispatch would panic when a command later tried to use it.
 func (b *Wrap) Render(ctx tuist.Context) {
 	if ctx.Width != b.width || ctx.ScreenHeight() != b.height {
 		b.width = ctx.Width
@@ -125,7 +259,8 @@ func (b *Wrap) Render(ctx tuist.Context) {
 }
 
 // HandleKeyPress implements tuist.Interactive.
-func (b *Wrap) HandleKeyPress(_ tuist.Context, ev uv.KeyPressEvent) bool {
+func (b *Wrap) HandleKeyPress(ctx tuist.Context, ev uv.KeyPressEvent) bool {
+	b.ready(ctx)
 	b.updateModel(uvKeyToV1(uv.Key(ev)))
 	return true // bubbletea models consume all key events
 }
@@ -133,7 +268,8 @@ func (b *Wrap) HandleKeyPress(_ tuist.Context, ev uv.KeyPressEvent) bool {
 // HandlePaste implements tuist.Pasteable. Pasted text is delivered as
 // individual rune key events to the bubbletea model, matching the
 // behavior bubbletea v1 would exhibit without bracketed paste mode.
-func (b *Wrap) HandlePaste(_ tuist.Context, ev uv.PasteEvent) bool {
+func (b *Wrap) HandlePaste(ctx tuist.Context, ev uv.PasteEvent) bool {
+	b.ready(ctx)
 	for _, r := range ev.Content {
 		b.updateModel(tea.KeyMsg{
 			Type:  tea.KeyRunes,

@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260309091805-903bfd0cf188
-	github.com/vito/tuist v0.0.6
+	github.com/vito/tuist v0.0.8
 )
 
 require (
@@ -39,3 +39,5 @@ require (
 )
 
 exclude github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd
+
+replace github.com/vito/tuist => ../
