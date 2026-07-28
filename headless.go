@@ -154,6 +154,11 @@ func (t *TUI) Inject(evs ...uv.Event) {
 // returns its visible lines. It is the headless equivalent of one runLoop
 // iteration, intended for deterministic testing.
 //
+// Input that was buffered for a focus target that hadn't mounted yet is
+// flushed after the frame that mounts it, and the frame is re-rendered — so
+// a single Step still returns the settled result of injected type-ahead,
+// matching runLoop's render-then-flush-then-render cadence.
+//
 // Must not be called while [TUI.Start] is active.
 func (t *TUI) Step() []string {
 	t.drainDispatchQ()
@@ -165,7 +170,12 @@ func (t *TUI) Step() []string {
 		}
 		t.drainDispatchQ()
 	}
-	return t.Frame()
+	lines := t.Frame()
+	if t.flushPendingInput() {
+		t.drainDispatchQ()
+		lines = t.Frame()
+	}
+	return lines
 }
 
 // Frame renders a single frame at the terminal's current size and returns

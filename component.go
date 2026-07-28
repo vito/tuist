@@ -397,6 +397,11 @@ func (c *Compo) renderChild(ctx Context, child Component) RenderResult {
 				}
 				m.OnMount(mctx)
 			}
+			// If this child was focused before it mounted (SetFocus in
+			// the same event batch that added it), deliver the deferred
+			// SetFocused(true) now — after OnMount, before the child's
+			// first Render below — with its mount context.
+			c.tui.notifyDeferredFocus(child)
 		}
 	}
 
@@ -705,6 +710,15 @@ func dismountTree(comp Component) {
 	// Decrement paste ref count before clearing tui pointer.
 	if _, ok := comp.(Pasteable); ok && cp.tui != nil {
 		cp.tui.disablePaste()
+	}
+
+	// The focus notification dies with the mount: if this component is
+	// refocused (or re-mounted while still the focus target), SetFocused
+	// must be delivered afresh with the new mount context — and a stale
+	// notified flag would otherwise let SetFocus blur a dismounted
+	// component through a contextless fallback.
+	if cp.tui != nil && cp.tui.focusedComponent == comp {
+		cp.tui.focusNotified = false
 	}
 
 	cp.tui = nil

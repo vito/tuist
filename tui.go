@@ -195,7 +195,20 @@ type TUI struct {
 	previousWidth    int
 	prevHeight       int // terminal height of the last applied frame; 0 before the first
 	focusedComponent Component
-	inputListeners   []inputListenerEntry
+	// focusNotified tracks whether focusedComponent has received its
+	// SetFocused(true) notification. SetFocus on a mounted component
+	// notifies immediately; on an unmounted one the notification is
+	// deferred to the mount (renderChild consults focusedComponent), so
+	// Focusable components only ever hear about focus with a valid mount
+	// context, after OnMount and before their first Render.
+	focusNotified bool
+	// pendingInput buffers key/paste events that arrived while the
+	// focused component was not yet mounted. They are flushed, in order,
+	// after the render pass that mounts it — so type-ahead lands on a
+	// component that has its mount context, its parent link (for
+	// bubbling), and its focus notification.
+	pendingInput   []uv.Event
+	inputListeners []inputListenerEntry
 
 	frameDir            string // TUIST_FRAMES: dump each frame to this dir
 	frameNum            int
@@ -295,6 +308,11 @@ func (t *TUI) runLoop() {
 
 		t.drainAll()
 		t.doRender()
+		// Deliver input that was waiting for the render to mount its
+		// focus target. Handlers mark components dirty via Update, which
+		// requests the next frame; flushing here — before the next
+		// drainAll — keeps these events ordered ahead of newer input.
+		t.flushPendingInput()
 	}
 }
 
@@ -486,14 +504,67 @@ func (t *TUI) disablePaste() {
 
 // SetFocus gives keyboard focus to the given component (or nil).
 // Must be called on the UI goroutine (from an event handler or Dispatch).
+//
+// If the component is not mounted yet (e.g. added and focused in the same
+// event handler, before a render), its SetFocused(true) notification is
+// deferred to its mount — delivered right after OnMount and before its
+// first Render, with its mount context. Key and paste input aimed at it is
+// buffered until then; see dispatchEvent/flushPendingInput.
 func (t *TUI) SetFocus(comp Component) {
-	if f, ok := t.focusedComponent.(Focusable); ok {
-		f.SetFocused(t.contextFor(t.focusedComponent), false)
+	if t.focusNotified {
+		// Only blur a component that was actually told it was focused;
+		// focusNotified also implies it is still mounted (dismount clears
+		// the flag), so the context carries its mount context.
+		if f, ok := t.focusedComponent.(Focusable); ok {
+			f.SetFocused(t.contextFor(t.focusedComponent), false)
+		}
 	}
 	t.focusedComponent = comp
+	t.focusNotified = false
+	if comp == nil {
+		return
+	}
+	if comp.compo().tui != nil || t.isOverlayComponent(comp) {
+		t.notifyFocus(comp)
+	}
+	// else: deferred — renderChild calls notifyFocus when comp mounts.
+}
+
+// isOverlayComponent reports whether comp is currently shown as an overlay.
+// Overlay components are composited by renderComponent, never mounted into
+// the tree, so a mount to defer to never comes: focus notification and
+// input delivery treat them as always ready, preserving the pre-deferral
+// behavior [TUI.ShowOverlay]'s docs promise.
+func (t *TUI) isOverlayComponent(comp Component) bool {
+	for _, o := range t.overlayStack {
+		if o.component == comp {
+			return true
+		}
+	}
+	return false
+}
+
+// notifyFocus marks the focus notification settled for comp and delivers
+// SetFocused(true) if it is Focusable. Precondition: comp is mounted and is
+// the current focus target. Must run on the UI goroutine.
+func (t *TUI) notifyFocus(comp Component) {
+	t.focusNotified = true
 	if f, ok := comp.(Focusable); ok {
 		f.SetFocused(t.contextFor(comp), true)
 	}
+}
+
+// notifyDeferredFocus delivers the pending focus notification to a freshly
+// mounted component, if it is the focus target and hasn't been notified.
+// Called by renderChild immediately after mounting — after OnMount, before
+// the component's first Render — so the notification always carries the
+// mount context. The !focusNotified guard makes it a no-op when the
+// component's own OnMount already claimed focus via SetFocus.
+func (t *TUI) notifyDeferredFocus(comp Component) {
+	if t.focusedComponent != comp || t.focusNotified {
+		return
+	}
+	t.notifyFocus(comp)
 }
 
 // contextFor constructs a Context for the given component, using its
@@ -829,8 +900,14 @@ func (t *TUI) dispatchEvent(ev uv.Event) {
 		t.mu.Unlock()
 		return
 	case uv.KeyPressEvent:
+		if t.queueIfFocusUnmounted(ev) {
+			return
+		}
 		t.bubbleKeyPress(comp, ctx, e)
 	case uv.PasteEvent:
+		if t.queueIfFocusUnmounted(ev) {
+			return
+		}
 		t.bubblePaste(comp, ctx, e)
 	case uv.MouseEvent:
 		// Positional dispatch: deliver mouse events to the component
@@ -845,6 +922,56 @@ func (t *TUI) dispatchEvent(ev uv.Event) {
 			t.dispatchMousePositional(e)
 		}
 	}
+}
+
+// queueIfFocusUnmounted buffers a key/paste event when the focused
+// component exists but hasn't mounted yet (focused in the same event batch
+// that added it, before any render). Delivering now would reach a component
+// with no mount context, no parent link (so unconsumed keys can't bubble),
+// and — under deferred focus notification — no SetFocused yet, which
+// focus-gated components would drop. The event is flushed after the render
+// pass that mounts the component. Requests a render so that pass comes even
+// if nothing else is dirty.
+func (t *TUI) queueIfFocusUnmounted(ev uv.Event) bool {
+	comp := t.focusedComponent
+	if comp == nil || comp.compo().tui != nil || t.isOverlayComponent(comp) {
+		return false
+	}
+	t.pendingInput = append(t.pendingInput, ev)
+	t.RequestRender(false)
+	return true
+}
+
+// flushPendingInput delivers input that was buffered while the focused
+// component was unmounted. Called right after a render pass — the pass that
+// mounts the component, links its parent, and delivers its deferred focus
+// notification — and before the next batch of terminal events is drained,
+// preserving arrival order. Reports whether anything was delivered.
+//
+// Events are delivered through the focused-component bubble path directly:
+// input listeners already saw these events on arrival (listeners run before
+// queueing in dispatchEvent), so re-running them would double-fire. If the
+// focus target is still unmounted — the app focused something unreachable —
+// the events are delivered anyway through whatever focus routing exists
+// now, bounding the deferral to a single frame rather than queueing
+// forever. Must run on the UI goroutine.
+func (t *TUI) flushPendingInput() bool {
+	if len(t.pendingInput) == 0 {
+		return false
+	}
+	evs := t.pendingInput
+	t.pendingInput = nil
+	for _, ev := range evs {
+		comp := t.focusedComponent
+		ctx := t.contextFor(comp)
+		switch e := ev.(type) {
+		case uv.KeyPressEvent:
+			t.bubbleKeyPress(comp, ctx, e)
+		case uv.PasteEvent:
+			t.bubblePaste(comp, ctx, e)
+		}
+	}
+	return true
 }
 
 // bubbleKeyPress delivers a key event to the focused component and, if
