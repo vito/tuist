@@ -1555,15 +1555,50 @@ func (t *TUI) renderFrame(width, height int, stats *RenderStats) ([]string, *Cur
 
 	stats.TotalLines = len(newLines)
 
-	// Truncate lines that exceed the terminal width so they don't wrap
-	// to the next physical row (which would break the diff renderer's
-	// line-count assumptions). Use a fast len() pre-check to skip the
-	// ANSI-aware truncation for lines that are obviously short enough.
-	if width > 0 {
-		for i, line := range newLines {
-			if len(line) > width {
-				newLines[i] = ansi.Truncate(line, width, "")
-			}
+	// Sanitize each line down to exactly one physical terminal row.
+	//
+	// [Context.Line] already splits multi-row strings at the source; this loop
+	// is the backstop for lines that never went through it — the alt-screen
+	// renderer, [TUI.Frame], hand-built composites — and so it must be
+	// position-preserving: len(newLines) has already been used to anchor
+	// overlays and translate the cursor, so offending characters are replaced,
+	// never split out into new lines.
+	//
+	// Note this mutates newLines in place, and with no overlays newLines IS the
+	// root component's cached line buffer. That is long-standing behavior, and
+	// safe because every step below is idempotent — running the loop twice over
+	// the same buffer is a no-op.
+	for i, line := range newLines {
+		orig := line
+		// Neutralize the control characters that move the cursor off this row:
+		// \n, \v and \f move down a row, and a bare \r returns to column 0 so
+		// the rest of the line overwrites what it already painted. Substitute a
+		// space rather than dropping them, so the content on either side stays
+		// separated and the measured width matches the columns the terminal
+		// actually paints — which is what the clamp below relies on.
+		if strings.ContainsAny(line, rowBreakChars) {
+			line = rowBreakReplacer.Replace(line)
+		}
+		// Tabs defeat the width clamp: they measure as no width at all but the
+		// terminal advances to the next 8-column tab stop, so a "narrow" line
+		// can still wrap onto a second row. Expand them so the clamp measures
+		// what the terminal will actually do. ExpandTabs is a no-op — and the
+		// IndexByte a cheap skip — for the usual tab-free line.
+		if strings.IndexByte(line, '\t') >= 0 {
+			line = ExpandTabs(line, 8)
+		}
+		// Truncate lines that exceed the terminal width so they don't wrap to
+		// the next physical row (which would break the diff renderer's
+		// line-count assumptions). The len() pre-check is a cheap lower bound
+		// on the visible width, skipping the ANSI-aware truncation for lines
+		// that are obviously short enough.
+		if width > 0 && len(line) > width {
+			line = ansi.Truncate(line, width, "")
+		}
+		// A clean line — the overwhelming majority — is left exactly as it
+		// came in, with no allocation and no store back into the buffer.
+		if line != orig {
+			newLines[i] = line
 		}
 	}
 
