@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/stretchr/testify v1.11.1
-	github.com/vito/midterm v0.2.4
+	github.com/vito/midterm v0.2.5
 	golang.org/x/sys v0.47.0
 	gotest.tools/v3 v3.5.2
 )
