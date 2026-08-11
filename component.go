@@ -62,13 +62,70 @@ type renderOutput struct {
 }
 
 // Line emits a single output line.
+//
+// A string containing newlines is split, so that it occupies one element of
+// the output buffer per physical terminal row. The whole framework treats one
+// element as exactly one row — child cursor translation ([Compo.RenderChild]),
+// overlay sizing and anchoring, viewport math, and the differential renderer's
+// relative cursor moves are all derived from element counts — so a single
+// element spanning two rows desynchronizes the renderer's idea of where the
+// hardware cursor is, permanently.
+//
+// The split has to happen here, at the source: doing it any later (in
+// renderFrame, or in the paint loop) would change the line count after cursors
+// had been translated in the old index space, after overlays anchored
+// themselves, and after the diff ran against the previous frame. It is also the
+// cheapest place in aggregate, since Render — and therefore Line — only runs on
+// a render cache miss, while any later pass would run on every frame.
+//
+// Multi-row strings arise easily in practice: lipgloss's Style.Width wraps
+// rather than truncates, and JoinVertical and bordered styles are inherently
+// multi-line.
+//
+// Caveat: a component that emits N lines and then calls [Context.SetCursor]
+// with a row number it computed from its own pre-split line count will see that
+// cursor land lower by the number of extra rows. That only affects components
+// which were already emitting multi-row strings, and a shifted cursor is
+// strictly better than the whole-frame drift it replaces.
 func (ctx Context) Line(s string) {
-	ctx.output.lines = append(ctx.output.lines, s)
+	// Fast path: no embedded newline, which is the overwhelming majority.
+	if strings.IndexByte(s, '\n') < 0 {
+		ctx.output.lines = append(ctx.output.lines, s)
+		return
+	}
+	ctx.appendRows(s)
 }
 
-// Lines emits multiple output lines.
+// Lines emits multiple output lines. Strings containing newlines are split
+// into one element per physical row; see [Context.Line].
 func (ctx Context) Lines(ss ...string) {
+	// Scan first so the common case — every string a single row — stays a
+	// single bulk append.
+	for _, s := range ss {
+		if strings.IndexByte(s, '\n') >= 0 {
+			for _, line := range ss {
+				ctx.Line(line)
+			}
+			return
+		}
+	}
 	ctx.output.lines = append(ctx.output.lines, ss...)
+}
+
+// appendRows appends s to the output buffer as one element per physical row.
+func (ctx Context) appendRows(s string) {
+	// Normalize CRLF so the CR does not survive as a stray jump back to column
+	// 0 at the end of a row. Replace does not allocate when there is no match.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	for {
+		i := strings.IndexByte(s, '\n')
+		if i < 0 {
+			break
+		}
+		ctx.output.lines = append(ctx.output.lines, s[:i])
+		s = s[i+1:]
+	}
+	ctx.output.lines = append(ctx.output.lines, s)
 }
 
 // SetCursor sets the hardware cursor position relative to this

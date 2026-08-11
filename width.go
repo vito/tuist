@@ -55,6 +55,22 @@ func ExpandTabs(s string, tabWidth int) string {
 	return buf.String()
 }
 
+// rowBreakChars are the control characters that move the terminal cursor off
+// the row it is painting: line feed, vertical tab and form feed move down,
+// carriage return jumps back to column 0. All of them measure as zero columns,
+// so no width-based guard catches them.
+const rowBreakChars = "\n\v\f\r"
+
+// rowBreakReplacer neutralizes rowBreakChars, substituting a space so that the
+// content on either side stays separated and the line's measured width matches
+// the columns the terminal actually paints.
+var rowBreakReplacer = strings.NewReplacer(
+	"\n", " ",
+	"\v", " ",
+	"\f", " ",
+	"\r", " ",
+)
+
 // Truncate truncates s to at most maxWidth visible columns, appending tail
 // (e.g. "...") if truncation occurred.
 func Truncate(s string, maxWidth int, tail string) string {
