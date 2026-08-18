@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -131,6 +132,35 @@ func TestTextInputWrappedMultiline(t *testing.T) {
 	// line 1: "bar" (3)
 	// So we should get 3 visual lines.
 	require.GreaterOrEqual(t, len(result.Lines), 2)
+}
+
+func TestTextInputCursorAtEndOfMiddleLine(t *testing.T) {
+	ti := NewTextInput("> ")
+	ti.SetValue("first\nmiddle\nlast")
+	ti.cursor = len([]rune("first\nmiddle"))
+	ti.SetFocused(Context{}, true)
+
+	result := renderComponent(ti, Context{Context: context.Background(), Width: 80})
+
+	require.NotNil(t, result.Cursor)
+	assert.Equal(t, 1, result.Cursor.Row)
+	assert.Equal(t, 8, result.Cursor.Col) // continuation prompt + "middle"
+}
+
+func TestTextInputUpMovesWithinMultilineAndBubblesAtTop(t *testing.T) {
+	ti := NewTextInput("> ")
+	ti.SetValue("first\nmiddle\nlast")
+	ti.lastRenderWidth = 80
+	ti.cursor = len([]rune("first\nmiddle"))
+	ctx := Context{Context: context.Background(), Width: 80}
+
+	handled := ti.HandleKeyPress(ctx, uv.KeyPressEvent(uv.Key{Code: uv.KeyUp}))
+	assert.True(t, handled)
+	assert.Equal(t, len([]rune("first")), ti.cursor)
+
+	handled = ti.HandleKeyPress(ctx, uv.KeyPressEvent(uv.Key{Code: uv.KeyUp}))
+	assert.False(t, handled, "Up on the first visual line should bubble for history")
+	assert.Equal(t, len([]rune("first")), ti.cursor)
 }
 
 func TestTextInputHasMultipleVisualLines(t *testing.T) {

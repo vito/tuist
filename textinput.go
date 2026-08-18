@@ -128,7 +128,7 @@ func (t *TextInput) wrappedCursorRowCol() (row, col int) {
 		for j, seg := range segments {
 			segStart := runeOffset + seg.runeStart
 			segEnd := runeOffset + seg.runeEnd
-			if t.cursor >= segStart && (t.cursor < segEnd || (t.cursor == segEnd && (j == len(segments)-1 && i == len(inputLines)-1))) {
+			if t.cursor >= segStart && (t.cursor < segEnd || (t.cursor == segEnd && j == len(segments)-1)) {
 				// Cursor is in this segment.
 				pw := contPromptW
 				if i == 0 && j == 0 {
@@ -244,7 +244,7 @@ func (t *TextInput) Render(ctx Context) {
 			// Track cursor position.
 			segStart := runeOffset + seg.runeStart
 			segEnd := runeOffset + seg.runeEnd
-			if t.cursor >= segStart && (t.cursor < segEnd || (t.cursor == segEnd && isLastInputLine && isLastSeg)) {
+			if t.cursor >= segStart && (t.cursor < segEnd || (t.cursor == segEnd && isLastSeg)) {
 				cursorInSeg := t.cursor - segStart
 				cursorRow = lineCount - 1
 				cursorCol = pw + VisibleWidth(string(lineRunes[seg.runeStart:seg.runeStart+cursorInSeg]))
@@ -375,7 +375,7 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 
 	// Right arrow / Ctrl+F: accept suggestion at end, else move cursor.
 	// Exclude Ctrl modifier on Right so that Ctrl+Right falls through to word movement.
-	if (key.Code == uv.KeyRight && key.Mod == 0 || key.Code == 'f' && key.Mod == uv.ModCtrl) {
+	if key.Code == uv.KeyRight && key.Mod == 0 || key.Code == 'f' && key.Mod == uv.ModCtrl {
 		if key.Code == uv.KeyRight && savedSuggestion != "" && t.cursor == len(t.value) {
 			t.SetValue(savedSuggestion)
 			return true
@@ -422,16 +422,14 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 	// Up/Down: move between visual lines (including wrapped lines), else bubble.
 	if key.Code == uv.KeyUp && key.Mod == 0 {
 		if t.hasMultipleVisualLines() {
-			t.moveCursorVertically(-1)
-			return true
+			return t.moveCursorVertically(-1)
 		}
 		handled = false
 		return handled
 	}
 	if key.Code == uv.KeyDown && key.Mod == 0 {
 		if t.hasMultipleVisualLines() {
-			t.moveCursorVertically(1)
-			return true
+			return t.moveCursorVertically(1)
 		}
 		handled = false
 		return handled
@@ -535,7 +533,7 @@ func (t *TextInput) lineEnd() int {
 
 // moveCursorVertically moves the cursor up (dir=-1) or down (dir=1)
 // by one visual (wrapped) line.
-func (t *TextInput) moveCursorVertically(dir int) {
+func (t *TextInput) moveCursorVertically(dir int) bool {
 	prompt := t.Prompt
 	contPrompt := t.ContinuationPrompt
 	if contPrompt == "" {
@@ -548,9 +546,10 @@ func (t *TextInput) moveCursorVertically(dir int) {
 
 	// Build the list of visual segments with their rune offsets.
 	type visualLine struct {
-		runeOffset int // absolute rune offset in t.value
-		seg        wrapSegment
-		promptW    int
+		runeOffset  int // absolute rune offset in t.value
+		seg         wrapSegment
+		promptW     int
+		logicalLast bool
 	}
 	inputLines := strings.Split(string(t.value), "\n")
 	var vlines []visualLine
@@ -568,7 +567,12 @@ func (t *TextInput) moveCursorVertically(dir int) {
 			if i == 0 && j == 0 {
 				pw = promptW
 			}
-			vlines = append(vlines, visualLine{runeOffset: runeOffset, seg: seg, promptW: pw})
+			vlines = append(vlines, visualLine{
+				runeOffset:  runeOffset,
+				seg:         seg,
+				promptW:     pw,
+				logicalLast: j == len(segments)-1,
+			})
 		}
 		runeOffset += len(lineRunes) + 1
 	}
@@ -578,11 +582,7 @@ func (t *TextInput) moveCursorVertically(dir int) {
 	for vi, vl := range vlines {
 		segStart := vl.runeOffset + vl.seg.runeStart
 		segEnd := vl.runeOffset + vl.seg.runeEnd
-		if t.cursor >= segStart && t.cursor < segEnd {
-			currentVLine = vi
-			break
-		}
-		if t.cursor == segEnd && vi == len(vlines)-1 {
+		if t.cursor >= segStart && (t.cursor < segEnd || t.cursor == segEnd && vl.logicalLast) {
 			currentVLine = vi
 			break
 		}
@@ -590,7 +590,7 @@ func (t *TextInput) moveCursorVertically(dir int) {
 
 	targetVLine := currentVLine + dir
 	if targetVLine < 0 || targetVLine >= len(vlines) {
-		return
+		return false
 	}
 
 	// Compute the visible column of the cursor in the current visual line.
@@ -613,6 +613,7 @@ func (t *TextInput) moveCursorVertically(dir int) {
 		ri++
 	}
 	t.cursor = tgt.runeOffset + tgt.seg.runeStart + ri
+	return true
 }
 
 func (t *TextInput) wordLeft() int {
