@@ -27,6 +27,8 @@ func TestWordWrapRunes(t *testing.T) {
 		{"first narrower", "hi world", 5, 20, []string{"hi ", "world"}},
 		{"exact fit", "hello", 5, 5, []string{"hello"}},
 		{"single space break", "a b", 2, 2, []string{"a ", "b"}},
+		{"over-wide rune", "界", 1, 1, []string{"界"}},
+		{"grapheme cluster", "👩‍💻x", 2, 2, []string{"👩‍💻", "x"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -161,6 +163,42 @@ func TestTextInputUpMovesWithinMultilineAndBubblesAtTop(t *testing.T) {
 	handled = ti.HandleKeyPress(ctx, uv.KeyPressEvent(uv.Key{Code: uv.KeyUp}))
 	assert.False(t, handled, "Up on the first visual line should bubble for history")
 	assert.Equal(t, len([]rune("first")), ti.cursor)
+}
+
+func TestTextInputVerticalMovementPreservesPreferredColumn(t *testing.T) {
+	ti := NewTextInput("> ")
+	ti.SetValue("12345\nx\n12345")
+	ti.lastRenderWidth = 80
+	ti.cursor = len([]rune("12345"))
+	ctx := Context{Context: context.Background(), Width: 80}
+
+	require.True(t, ti.HandleKeyPress(ctx, uv.KeyPressEvent(uv.Key{Code: uv.KeyDown})))
+	assert.Equal(t, len([]rune("12345\nx")), ti.cursor)
+	require.True(t, ti.HandleKeyPress(ctx, uv.KeyPressEvent(uv.Key{Code: uv.KeyDown})))
+	assert.Equal(t, len([]rune("12345\nx\n12345")), ti.cursor)
+}
+
+func TestTextInputEditsWholeGraphemeClusters(t *testing.T) {
+	ctx := Context{Context: context.Background(), Width: 80}
+	ti := NewTextInput("> ")
+	ti.SetValue("a👩‍💻b")
+
+	require.True(t, ti.HandleKeyPress(ctx, uv.KeyPressEvent(uv.Key{Code: uv.KeyLeft})))
+	require.True(t, ti.HandleKeyPress(ctx, uv.KeyPressEvent(uv.Key{Code: uv.KeyLeft})))
+	assert.Equal(t, 1, ti.cursor)
+
+	require.True(t, ti.HandleKeyPress(ctx, uv.KeyPressEvent(uv.Key{Code: uv.KeyDelete})))
+	assert.Equal(t, "ab", ti.Value())
+}
+
+func TestTextInputCursorEndRequestsRender(t *testing.T) {
+	ti := NewTextInput("> ")
+	ti.SetValue("abc")
+	generation := ti.generation.Load()
+
+	ti.CursorEnd()
+
+	assert.Greater(t, ti.generation.Load(), generation)
 }
 
 func TestTextInputHasMultipleVisualLines(t *testing.T) {

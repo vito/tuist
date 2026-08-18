@@ -3,8 +3,10 @@ package tuist
 import (
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TextInput is a text editor component with cursor, history, and
@@ -30,7 +32,9 @@ type TextInput struct {
 
 	// lastRenderWidth stores the width from the most recent Render call,
 	// used by CursorScreenCol and moveCursorVertically.
-	lastRenderWidth int
+	lastRenderWidth       int
+	preferredCursorCol    int
+	hasPreferredCursorCol bool
 
 	// OnSubmit is called when Enter is pressed. The string is the trimmed
 	// input value. Return true to clear the input after submission.
@@ -86,11 +90,16 @@ func (t *TextInput) Value() string { return string(t.value) }
 func (t *TextInput) SetValue(s string) {
 	t.value = []rune(s)
 	t.cursor = len(t.value)
+	t.hasPreferredCursorCol = false
 	t.Update()
 }
 
 // CursorEnd moves the cursor to the end of the input.
-func (t *TextInput) CursorEnd() { t.cursor = len(t.value) }
+func (t *TextInput) CursorEnd() {
+	t.cursor = len(t.value)
+	t.hasPreferredCursorCol = false
+	t.Update()
+}
 
 // CursorScreenCol returns the screen column of the cursor, including
 // the prompt width. This is useful for callers that need to position
@@ -312,6 +321,7 @@ func (t *TextInput) handlePaste(ctx Context, content string) {
 	newVal = append(newVal, t.value[t.cursor:]...)
 	t.value = newVal
 	t.cursor += len(runes)
+	t.hasPreferredCursorCol = false
 	t.Update()
 	if t.OnChange != nil && string(t.value) != oldValue {
 		t.OnChange(ctx)
@@ -320,6 +330,9 @@ func (t *TextInput) handlePaste(ctx Context, content string) {
 
 func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 	key := uv.Key(e)
+	if !((key.Code == uv.KeyUp || key.Code == uv.KeyDown) && key.Mod == 0) {
+		t.hasPreferredCursorCol = false
+	}
 
 	oldValue := string(t.value)
 	savedSuggestion := t.Suggestion
@@ -381,7 +394,7 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 			return true
 		}
 		if t.cursor < len(t.value) {
-			t.cursor++
+			t.cursor = nextGraphemeEnd(t.value, t.cursor)
 		}
 		return true
 	}
@@ -389,8 +402,9 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 	// Backspace.
 	if key.Code == uv.KeyBackspace {
 		if t.cursor > 0 {
-			t.value = append(t.value[:t.cursor-1], t.value[t.cursor:]...)
-			t.cursor--
+			start := previousGraphemeStart(t.value, t.cursor)
+			t.value = append(t.value[:start], t.value[t.cursor:]...)
+			t.cursor = start
 		}
 		return true
 	}
@@ -398,7 +412,8 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 	// Delete.
 	if key.Code == uv.KeyDelete {
 		if t.cursor < len(t.value) {
-			t.value = append(t.value[:t.cursor], t.value[t.cursor+1:]...)
+			end := nextGraphemeEnd(t.value, t.cursor)
+			t.value = append(t.value[:t.cursor], t.value[end:]...)
 		}
 		return true
 	}
@@ -406,7 +421,7 @@ func (t *TextInput) handleKeyPress(ctx Context, e uv.KeyPressEvent) bool {
 	// Cursor movement.
 	if key.Code == uv.KeyLeft && key.Mod == 0 || key.Code == 'b' && key.Mod == uv.ModCtrl {
 		if t.cursor > 0 {
-			t.cursor--
+			t.cursor = previousGraphemeStart(t.value, t.cursor)
 		}
 		return true
 	}
@@ -598,6 +613,12 @@ func (t *TextInput) moveCursorVertically(dir int) bool {
 	cursorInSeg := t.cursor - (cur.runeOffset + cur.seg.runeStart)
 	segRunes := t.value[cur.runeOffset+cur.seg.runeStart : cur.runeOffset+cur.seg.runeStart+cursorInSeg]
 	curCol := cur.promptW + VisibleWidth(string(segRunes))
+	if t.hasPreferredCursorCol {
+		curCol = t.preferredCursorCol
+	} else {
+		t.preferredCursorCol = curCol
+		t.hasPreferredCursorCol = true
+	}
 
 	// Move to the same visible column in the target visual line.
 	tgt := vlines[targetVLine]
@@ -605,12 +626,12 @@ func (t *TextInput) moveCursorVertically(dir int) bool {
 	col := 0
 	ri := 0
 	for ri < len(tgtRunes) {
-		rw := VisibleWidth(string(tgtRunes[ri : ri+1]))
+		next, rw := nextGrapheme(tgtRunes, ri)
 		if tgt.promptW+col+rw > curCol {
 			break
 		}
 		col += rw
-		ri++
+		ri = next
 	}
 	t.cursor = tgt.runeOffset + tgt.seg.runeStart + ri
 	return true
@@ -738,15 +759,18 @@ func wordWrapRunes(runes []rune, firstWidth, contWidth int) []wrapSegment {
 		col := 0
 		lastSpace := -1
 		for end < len(runes) {
-			rw := VisibleWidth(string(runes[end]))
+			next, rw := nextGrapheme(runes, end)
 			if col+rw > maxW {
+				if end == pos {
+					end = next // always make progress for an over-wide cluster
+				}
 				break
 			}
-			if runes[end] == ' ' {
+			if next == end+1 && runes[end] == ' ' {
 				lastSpace = end
 			}
 			col += rw
-			end++
+			end = next
 		}
 
 		if end >= len(runes) {
@@ -781,4 +805,29 @@ func wordWrapRunes(runes []rune, firstWidth, contWidth int) []wrapSegment {
 	}
 
 	return segments
+}
+
+func nextGrapheme(runes []rune, start int) (end, width int) {
+	cluster, width := ansi.FirstGraphemeCluster(string(runes[start:]), ansi.GraphemeWidth)
+	if cluster == "" {
+		return min(start+1, len(runes)), 0
+	}
+	return start + utf8.RuneCountInString(cluster), width
+}
+
+func nextGraphemeEnd(runes []rune, start int) int {
+	end, _ := nextGrapheme(runes, start)
+	return end
+}
+
+func previousGraphemeStart(runes []rune, end int) int {
+	start := 0
+	for start < end {
+		next, _ := nextGrapheme(runes, start)
+		if next >= end {
+			return start
+		}
+		start = next
+	}
+	return start
 }
