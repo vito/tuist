@@ -195,6 +195,7 @@ type TUI struct {
 	previousWidth    int
 	prevHeight       int // terminal height of the last applied frame; 0 before the first
 	focusedComponent Component
+	focusStack       []*focusHandleState
 	// focusNotified tracks whether focusedComponent has received its
 	// SetFocused(true) notification. SetFocus on a mounted component
 	// notifies immediately; on an unmounted one the notification is
@@ -260,6 +261,22 @@ type TUI struct {
 
 	stopCtx    context.Context    // cancelled by Stop() to signal shutdown
 	stopCancel context.CancelFunc // cancels stopCtx
+}
+
+// FocusHandle represents a temporary focus scope created by [TUI.PushFocus].
+// Call [FocusHandle.Restore] when the temporary UI is dismissed to return
+// focus to the component that owned it before the scope was created.
+//
+// A handle may be restored more than once; calls after the first are no-ops.
+type FocusHandle struct {
+	state *focusHandleState
+}
+
+type focusHandleState struct {
+	tui              *TUI
+	previous         Component
+	previousDeferred bool
+	restored         bool
 }
 
 // New creates a TUI backed by the given terminal. No goroutines are
@@ -528,6 +545,130 @@ func (t *TUI) SetFocus(comp Component) {
 		t.notifyFocus(comp)
 	}
 	// else: deferred — renderChild calls notifyFocus when comp mounts.
+}
+
+// Focused returns the component that currently owns keyboard input, or nil.
+// The returned component may be awaiting its first mount; input directed to
+// such a component is buffered until it mounts.
+//
+// Must be called on the UI goroutine (from an event handler or Dispatch).
+func (t *TUI) Focused() Component {
+	return t.focusedComponent
+}
+
+// IsFocused reports whether comp currently owns keyboard input. A component
+// awaiting its first mount is considered focused.
+//
+// Must be called on the UI goroutine (from an event handler or Dispatch).
+func (t *TUI) IsFocused(comp Component) bool {
+	return comp != nil && t.focusedComponent == comp
+}
+
+// PushFocus gives keyboard focus to comp and returns a handle that restores
+// the component that owned focus beforehand. Focus scopes may be nested.
+// Restoring an older scope while a newer scope is active defers its
+// restoration until the newer scope is also restored.
+// If comp is already mounted in a different TUI, PushFocus leaves focus
+// unchanged and returns a no-op handle.
+//
+// Must be called on the UI goroutine (from an event handler or Dispatch).
+func (t *TUI) PushFocus(comp Component) *FocusHandle {
+	if comp != nil && comp.compo().tui != nil && comp.compo().tui != t {
+		return &FocusHandle{}
+	}
+	previous := t.focusedComponent
+	state := &focusHandleState{
+		tui:              t,
+		previous:         previous,
+		previousDeferred: previous != nil && previous.compo().tui == nil && !t.isOverlayComponent(previous),
+	}
+	t.focusStack = append(t.focusStack, state)
+	t.SetFocus(comp)
+	return &FocusHandle{state: state}
+}
+
+// Restore closes this focus scope. It is safe to call Restore repeatedly.
+// Nested scopes restore in LIFO order; restoring a non-current scope marks it
+// closed without disturbing the newer scope.
+//
+// If the saved component has since been removed from its TUI tree or overlay
+// stack, focus is safely cleared instead of being restored to a stale target.
+// Must be called on the UI goroutine (from an event handler or Dispatch).
+func (h *FocusHandle) Restore() {
+	if h == nil || h.state == nil || h.state.restored {
+		return
+	}
+
+	state := h.state
+	state.restored = true
+	t := state.tui
+	if t == nil || len(t.focusStack) == 0 || t.focusStack[len(t.focusStack)-1] != state {
+		return
+	}
+
+	previous := state.previous
+	previousDeferred := state.previousDeferred
+	t.focusStack = t.focusStack[:len(t.focusStack)-1]
+	for len(t.focusStack) > 0 {
+		top := t.focusStack[len(t.focusStack)-1]
+		if !top.restored {
+			break
+		}
+		previous = top.previous
+		previousDeferred = top.previousDeferred
+		t.focusStack = t.focusStack[:len(t.focusStack)-1]
+	}
+
+	if previous != nil && !t.isFocusTargetAvailable(previous, previousDeferred) {
+		previous = nil
+	}
+	t.SetFocus(previous)
+}
+
+// isFocusTargetAvailable reports whether comp is still a live focus target.
+// Explicit tree removal is visible immediately, before lazy dismount clears
+// the TUI pointer, so check the component and its mounted ancestors too.
+func (t *TUI) isFocusTargetAvailable(comp Component, allowDeferred bool) bool {
+	if t.isOverlayComponent(comp) {
+		return true
+	}
+	cp := comp.compo()
+	if cp.tui != t && !(allowDeferred && cp.tui == nil) {
+		return false
+	}
+	for ; cp != nil; cp = cp.parent {
+		if cp.explicitlyRemoved {
+			return false
+		}
+	}
+	return true
+}
+
+// clearFocusForRemoval clears focus when removed is the focused component or
+// an ancestor of it. This is intentionally called only for explicit removal;
+// render-driven dismounts retain focus so a temporarily omitted component can
+// be re-mounted and notified again.
+func (t *TUI) clearFocusForRemoval(removed Component) {
+	focused := t.focusedComponent
+	if focused == nil || removed == nil {
+		return
+	}
+	if focused == removed {
+		t.SetFocus(nil)
+		return
+	}
+	// Overlays can retain parent pointers from an earlier tree mount, but they
+	// are not descendants of a removed tree component while acting as an
+	// overlay.
+	if t.isOverlayComponent(focused) {
+		return
+	}
+	for parent := focused.compo().parent; parent != nil; parent = parent.parent {
+		if parent == removed.compo() {
+			t.SetFocus(nil)
+			return
+		}
+	}
 }
 
 // isOverlayComponent reports whether comp is currently shown as an overlay.

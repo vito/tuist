@@ -116,7 +116,8 @@ type OverlayHandle struct {
 	entry *overlayEntry
 }
 
-// Remove permanently removes the overlay from the overlay stack.
+// Remove permanently removes the overlay from the overlay stack. If the
+// overlay owns focus, focus is cleared immediately.
 // Must be called on the UI goroutine (from an event handler or Dispatch).
 func (h *OverlayHandle) Remove() {
 	h.tui.removeOverlay(h.entry)
@@ -157,6 +158,9 @@ type overlayEntry struct {
 func (t *TUI) removeOverlay(entry *overlayEntry) {
 	for i, e := range t.overlayStack {
 		if e == entry {
+			if t.focusedComponent == e.component {
+				t.SetFocus(nil)
+			}
 			t.overlayStack = append(t.overlayStack[:i], t.overlayStack[i+1:]...)
 			t.RequestRender(false)
 			return

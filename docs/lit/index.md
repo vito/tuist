@@ -181,6 +181,30 @@ func (w *Widget) OnMount(ctx tuist.Context) {
 }
 ```
 
+## focus
+
+Tuist is the source of truth for keyboard focus. `Focused()` returns the
+component that currently owns input, and `IsFocused(component)` checks its
+identity. Components can use `ctx.IsFocused()` during framework callbacks.
+Like other component state, these methods must be used on the UI goroutine.
+
+Use `PushFocus()` when presenting temporary UI. Its handle restores the focus
+owner that was active before the temporary component appeared:
+
+```go
+tui.AddChild(dialog)
+focus := tui.PushFocus(dialog)
+
+// When the dialog is dismissed, restore focus before removing it.
+focus.Restore()
+tui.RemoveChild(dialog)
+```
+
+Focus scopes may be nested. Restoring an older scope while a newer one is
+active is safe: restoration waits until the newer scope closes. Explicitly
+removing a focused component, one of its ancestors, or a focused overlay also
+clears focus, preventing input from being routed to dismissed UI.
+
 ## overlays
 
 Overlays allow components like floating menus and notification bubbles to render
@@ -201,7 +225,7 @@ handle := ctx.ShowOverlay(menu, &tuist.OverlayOptions{
     CursorGroup:    group, // linked overlays share the above/below decision
 })
 
-handle.Hide()              // remove permanently
+handle.Remove()            // remove permanently
 handle.SetHidden(true)     // toggle visibility
 handle.SetOptions(newOpts) // reposition without recreating
 ```

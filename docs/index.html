@@ -121,25 +121,31 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
     </li>
   
     <li>
-      <a href="index.html#overlays">7 overlays</a>
+      <a href="index.html#focus">7 focus</a>
 
       
     </li>
   
     <li>
-      <a href="index.html#built-in-components">8 built-in components</a>
+      <a href="index.html#overlays">8 overlays</a>
 
       
     </li>
   
     <li>
-      <a href="index.html#mouse-support">9 mouse support</a>
+      <a href="index.html#built-in-components">9 built-in components</a>
 
       
     </li>
   
     <li>
-      <a href="index.html#debug-ui">10 debug ui</a>
+      <a href="index.html#mouse-support">10 mouse support</a>
+
+
+    </li>
+
+    <li>
+      <a href="index.html#debug-ui">11 debug ui</a>
 
       
     </li>
@@ -388,6 +394,21 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
   
 
 
+  <h2 class="section-header"><a id="focus"></a>
+  focus</h2>
+
+<p>Tuist is the source of truth for keyboard focus. <code>Focused()</code> returns the component that currently owns input, and <code>IsFocused(component)</code> checks its identity. Components can use <code>ctx.IsFocused()</code> during framework callbacks. Like other component state, these methods must be used on the UI goroutine.</p><p>Use <code>PushFocus()</code> when presenting temporary UI. Its handle restores the focus owner that was active before the temporary component appeared:</p><pre style="color:#c9d1d9;background-color:#0d1117;-webkit-text-size-adjust:none;"><code><span style="display:flex;"><span><span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">AddChild</span>(<span style="color:#ffa657">dialog</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">focus</span> <span style="color:#ff7b72">:=</span> <span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">PushFocus</span>(<span style="color:#ffa657">dialog</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6e7681;font-style:italic">// When the dialog is dismissed, restore focus before removing it.</span>
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">focus</span>.<span style="color:#d2a8ff">Restore</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">tui</span>.<span style="color:#d2a8ff">RemoveChild</span>(<span style="color:#ffa657">dialog</span>)
+</span></span></code></pre><p>Focus scopes may be nested. Restoring an older scope while a newer one is active is safe: restoration waits until the newer scope closes. Explicitly removing a focused component, one of its ancestors, or a focused overlay also clears focus, preventing input from being routed to dismissed UI.</p>
+
+
+
+
+
   <h2 class="section-header"><a id="overlays"></a>
   overlays</h2>
 
@@ -404,7 +425,7 @@ footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--code-border
 </span></span><span style="display:flex;"><span>    <span style="color:#ffa657">CursorGroup</span>:    <span style="color:#ffa657">group</span>, <span style="color:#6e7681;font-style:italic">// linked overlays share the above/below decision</span>
 </span></span><span style="display:flex;"><span>})
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">Hide</span>()              <span style="color:#6e7681;font-style:italic">// remove permanently</span>
+</span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">Remove</span>()            <span style="color:#6e7681;font-style:italic">// remove permanently</span>
 </span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">SetHidden</span>(<span style="color:#ff7b72;font-weight:bold">true</span>)     <span style="color:#6e7681;font-style:italic">// toggle visibility</span>
 </span></span><span style="display:flex;"><span><span style="color:#ffa657">handle</span>.<span style="color:#d2a8ff">SetOptions</span>(<span style="color:#ffa657">newOpts</span>) <span style="color:#6e7681;font-style:italic">// reposition without recreating</span>
 </span></span></code></pre>

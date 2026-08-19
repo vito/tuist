@@ -175,6 +175,12 @@ func (ctx Context) SetFocus(comp Component) {
 	ctx.tui.SetFocus(comp)
 }
 
+// IsFocused reports whether the source component currently owns keyboard
+// focus. Must be called on the UI goroutine, like [TUI.IsFocused].
+func (ctx Context) IsFocused() bool {
+	return ctx.tui != nil && ctx.source != nil && ctx.tui.IsFocused(ctx.source)
+}
+
 // ShowOverlay displays a component as an overlay and returns a handle.
 func (ctx Context) ShowOverlay(comp Component, opts *OverlayOptions) *OverlayHandle {
 	return ctx.tui.ShowOverlay(comp, opts)
@@ -337,9 +343,10 @@ type Compo struct {
 	// Lifecycle — managed by the framework during mount/dismount.
 	// Components never access these directly; they receive Context
 	// through handlers and lifecycle hooks.
-	tui         *TUI
-	mountCtx    context.Context
-	mountCancel context.CancelFunc
+	tui               *TUI
+	mountCtx          context.Context
+	mountCancel       context.CancelFunc
+	explicitlyRemoved bool // removed from a Container/Slot, possibly before lazy dismount
 }
 
 type renderCache struct {
@@ -371,6 +378,18 @@ func (c *Compo) Update() {
 // compo returns the embedded Compo. The unexported method ensures that
 // only types embedding Compo can satisfy the Component interface.
 func (c *Compo) compo() *Compo { return c }
+
+// treeTUI returns the TUI that owns this component's structural tree. Parent
+// links are established when Container/Slot children are assigned, before
+// lazy mounting, so explicit removal can invalidate a deferred focus target.
+func (c *Compo) treeTUI() *TUI {
+	for cp := c; cp != nil; cp = cp.parent {
+		if cp.tui != nil {
+			return cp.tui
+		}
+	}
+	return nil
+}
 
 // RenderChild renders a child component through this Compo, using the
 // framework's render cache. It is the single mechanism for child
@@ -423,6 +442,7 @@ func (c *Compo) RenderChildResult(ctx Context, child Component) RenderResult {
 func (c *Compo) renderChild(ctx Context, child Component) RenderResult {
 	child.compo().parent = c
 	child.compo().componentStats = c.componentStats
+	child.compo().explicitlyRemoved = false
 	c.renderChildren = append(c.renderChildren, child)
 
 	// Compute the child's absolute row from the parent's base offset
@@ -800,15 +820,23 @@ type Container struct {
 // AddChild appends a component to the container. The child will be
 // mounted on the next render via [RenderChild].
 func (c *Container) AddChild(comp Component) {
+	cp := comp.compo()
+	cp.parent = &c.Compo
+	cp.explicitlyRemoved = false
 	c.Children = append(c.Children, comp)
 	c.Update()
 }
 
-// RemoveChild removes a component from the container. The child will
-// be dismounted when the container re-renders (orphan cleanup).
+// RemoveChild removes a component from the container. The child will be
+// dismounted when the container re-renders (orphan cleanup). If the child or
+// one of its descendants owns focus, focus is cleared immediately.
 func (c *Container) RemoveChild(comp Component) {
 	for i, ch := range c.Children {
 		if ch == comp {
+			comp.compo().explicitlyRemoved = true
+			if tui := c.treeTUI(); tui != nil {
+				tui.clearFocusForRemoval(comp)
+			}
 			c.Children = append(c.Children[:i], c.Children[i+1:]...)
 			c.Update()
 			return
@@ -816,9 +844,17 @@ func (c *Container) RemoveChild(comp Component) {
 	}
 }
 
-// Clear removes all children. They will be dismounted when the
-// container re-renders (orphan cleanup).
+// Clear removes all children. They will be dismounted when the container
+// re-renders (orphan cleanup). Focus is cleared immediately if it belongs to
+// any removed subtree.
 func (c *Container) Clear() {
+	tui := c.treeTUI()
+	for _, child := range c.Children {
+		child.compo().explicitlyRemoved = true
+		if tui != nil {
+			tui.clearFocusForRemoval(child)
+		}
+	}
 	c.Children = nil
 	c.Update()
 }
@@ -845,12 +881,30 @@ type Slot struct {
 
 // NewSlot creates a Slot with the given initial child.
 func NewSlot(child Component) *Slot {
-	return &Slot{child: child}
+	s := &Slot{child: child}
+	if child != nil {
+		cp := child.compo()
+		cp.parent = &s.Compo
+		cp.explicitlyRemoved = false
+	}
+	return s
 }
 
-// Set replaces the current child. The old child will be dismounted
-// and the new child mounted on the next render.
+// Set replaces the current child. The old child will be dismounted and the
+// new child mounted on the next render. If the old child or one of its
+// descendants owns focus, focus is cleared immediately.
 func (s *Slot) Set(c Component) {
+	if s.child != nil && s.child != c {
+		s.child.compo().explicitlyRemoved = true
+		if tui := s.treeTUI(); tui != nil {
+			tui.clearFocusForRemoval(s.child)
+		}
+	}
+	if c != nil {
+		cp := c.compo()
+		cp.parent = &s.Compo
+		cp.explicitlyRemoved = false
+	}
 	s.child = c
 	s.Update()
 }
