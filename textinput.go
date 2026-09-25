@@ -81,7 +81,17 @@ func NewTextInput(prompt string) *TextInput {
 	return &TextInput{Prompt: prompt}
 }
 
-func (t *TextInput) SetFocused(_ Context, focused bool) { t.focused = focused }
+// SetFocused implements [Focusable]. Render only positions the cursor
+// while focused, so a focus change marks the input dirty. [Compo.Update]
+// propagates upward, so wrappers that consult [TUI.IsFocused] for the
+// input during Render re-render too.
+func (t *TextInput) SetFocused(_ Context, focused bool) {
+	if t.focused == focused {
+		return
+	}
+	t.focused = focused
+	t.Update()
+}
 
 // Value returns the current input string.
 func (t *TextInput) Value() string { return string(t.value) }
