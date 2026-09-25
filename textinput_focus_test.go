@@ -43,30 +43,6 @@ func TestTextInputFocusChangeInvalidatesCache(t *testing.T) {
 	assert.Equal(t, 4, cursor.Col)
 }
 
-func TestTextInputFocused(t *testing.T) {
-	var log []string
-	tui := newFocusTUI()
-	ti := NewTextInput("> ")
-	other := &focusProbe{log: &log}
-	tui.AddChild(ti)
-	tui.AddChild(other)
-	tui.Step()
-
-	assert.False(t, ti.Focused())
-
-	tui.SetFocus(ti)
-	assert.True(t, ti.Focused())
-
-	tui.SetFocus(other)
-	assert.False(t, ti.Focused())
-
-	tui.SetFocus(ti)
-	assert.True(t, ti.Focused())
-
-	tui.SetFocus(nil)
-	assert.False(t, ti.Focused())
-}
-
 func TestTextInputSetFocusedUpdatesOnlyOnChange(t *testing.T) {
 	ti := NewTextInput("> ")
 	gen := ti.generation.Load()
@@ -86,13 +62,14 @@ func TestTextInputSetFocusedUpdatesOnlyOnChange(t *testing.T) {
 // keyboard, the way a prompt frame might show a focus cue.
 type focusFrame struct {
 	Compo
+	tui     *TUI
 	input   *TextInput
 	renders int
 }
 
 func (f *focusFrame) Render(ctx Context) {
 	f.renders++
-	if f.input.Focused() {
+	if f.tui.IsFocused(f.input) {
 		ctx.Line("[focused]")
 	} else {
 		ctx.Line("[idle]")
@@ -104,7 +81,7 @@ func TestTextInputFocusRerendersWrapper(t *testing.T) {
 	var log []string
 	tui := newFocusTUI()
 	ti := NewTextInput("> ")
-	frame := &focusFrame{input: ti}
+	frame := &focusFrame{tui: tui, input: ti}
 	other := &focusProbe{log: &log}
 	tui.AddChild(frame)
 	tui.AddChild(other)

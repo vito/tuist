@@ -82,8 +82,9 @@ func NewTextInput(prompt string) *TextInput {
 }
 
 // SetFocused implements [Focusable]. Render only positions the cursor
-// while focused, so a focus change marks the input (and, via
-// [Compo.Update], its ancestors) dirty.
+// while focused, so a focus change marks the input dirty. [Compo.Update]
+// propagates upward, so wrappers that consult [TUI.IsFocused] for the
+// input during Render re-render too.
 func (t *TextInput) SetFocused(_ Context, focused bool) {
 	if t.focused == focused {
 		return
@@ -91,14 +92,6 @@ func (t *TextInput) SetFocused(_ Context, focused bool) {
 	t.focused = focused
 	t.Update()
 }
-
-// Focused reports whether the input currently has focus, i.e. owns the
-// keyboard. Wrapping components can read it during Render to decorate the
-// input differently while it is focused; focus changes re-render them,
-// since SetFocused calls [Compo.Update], which propagates upward.
-//
-// Like the rest of TextInput, it must be called from the UI goroutine.
-func (t *TextInput) Focused() bool { return t.focused }
 
 // Value returns the current input string.
 func (t *TextInput) Value() string { return string(t.value) }
