@@ -764,6 +764,18 @@ type Dismounter interface {
 func dismountTree(comp Component) {
 	cp := comp.compo()
 
+	// Drop the render cache of a component that rendered children, so that a
+	// remount renders it again. Otherwise a subtree omitted from one frame and
+	// re-included unchanged would remount only its top: renderComponent would
+	// cache-hit (same generation, same width), Render would never run, and
+	// RenderChild would never remount the descendants -- no OnMount, no mount
+	// context, no mouse or paste registration, no deferred focus. A leaf needs
+	// none of that (renderChild mounts it before consulting the cache), so it
+	// keeps its cache.
+	if len(cp.renderChildren) > 0 {
+		cp.cache = nil
+	}
+
 	// Dismount children (populated by RenderChild during rendering).
 	for _, child := range cp.renderChildren {
 		if child.compo().tui != nil {
