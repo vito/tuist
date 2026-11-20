@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"weak"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -196,6 +197,17 @@ type TUI struct {
 	prevHeight       int // terminal height of the last applied frame; 0 before the first
 	focusedComponent Component
 	focusStack       []*focusHandleState
+	// focusAncestors keeps alive the former ancestors of each dismounted
+	// focus target (the focused component, or one a focus scope will
+	// restore), keyed by the target. A dismounted component holds its parent
+	// only weakly (see Compo.detachedParent), but explicit-removal checks
+	// walk a dismounted target's former ancestors to learn whether it was
+	// removed with one of them; holding them here makes that answer
+	// independent of GC timing. Entries go when the target mounts again or
+	// stops being a focus target, so this pins at most a chain per target.
+	focusAncestors map[Component][]*Compo
+	// weakRef is a weak pointer to this TUI, made once; see weakSelf.
+	weakRef weak.Pointer[TUI]
 	// focusNotified tracks whether focusedComponent has received its
 	// SetFocused(true) notification. SetFocus on a mounted component
 	// notifies immediately; on an unmounted one the notification is
@@ -277,6 +289,12 @@ type focusHandleState struct {
 	previous         Component
 	previousDeferred bool
 	restored         bool
+	// removedPath keeps alive, for Restore's check, the chain from previous
+	// up to each explicitly removed component previous was under when it was
+	// removed. Links above a dismounted component are weak, so a removed
+	// subtree nobody else holds could otherwise be collected before Restore
+	// walks up to it, and focus would return into it.
+	removedPath []*Compo
 }
 
 // New creates a TUI backed by the given terminal. No goroutines are
@@ -538,13 +556,66 @@ func (t *TUI) SetFocus(comp Component) {
 	}
 	t.focusedComponent = comp
 	t.focusNotified = false
+	t.pruneFocusAncestors()
 	if comp == nil {
 		return
 	}
 	if comp.compo().tui != nil || t.isOverlayComponent(comp) {
 		t.notifyFocus(comp)
+		return
 	}
-	// else: deferred — renderChild calls notifyFocus when comp mounts.
+	// Deferred — renderChild calls notifyFocus when comp mounts. Until then
+	// hold on to its ancestors: some of the links to them may be (or later
+	// become) the weak ones a dismount leaves.
+	t.retainFocusAncestors(comp)
+}
+
+// isFocusTarget reports whether comp holds focus or is the component a
+// focus scope will restore.
+func (t *TUI) isFocusTarget(comp Component) bool {
+	if t.focusedComponent == comp {
+		return true
+	}
+	for _, s := range t.focusStack {
+		if s.previous == comp {
+			return true
+		}
+	}
+	return false
+}
+
+// retainFocusAncestors records comp's current ancestor chain in
+// focusAncestors. dismountTree calls it for a focus target while the chain
+// is still strong; SetFocus calls it for a target that is not mounted,
+// keeping whatever of its chain is still alive.
+func (t *TUI) retainFocusAncestors(comp Component) {
+	var chain []*Compo
+	for p := comp.compo().parentCompo(); p != nil; p = p.parentCompo() {
+		chain = append(chain, p)
+	}
+	if t.focusAncestors == nil {
+		t.focusAncestors = make(map[Component][]*Compo)
+	}
+	t.focusAncestors[comp] = chain
+}
+
+// weakSelf returns a weak pointer to t, for dismounted components to
+// remember it by (Compo.formerTUI) without keeping it alive.
+func (t *TUI) weakSelf() weak.Pointer[TUI] {
+	if t.weakRef == (weak.Pointer[TUI]{}) {
+		t.weakRef = weak.Make(t)
+	}
+	return t.weakRef
+}
+
+// pruneFocusAncestors drops the chains of components that are no longer
+// focus targets. Every focus change goes through SetFocus, which calls it.
+func (t *TUI) pruneFocusAncestors() {
+	for comp := range t.focusAncestors {
+		if !t.isFocusTarget(comp) {
+			delete(t.focusAncestors, comp)
+		}
+	}
 }
 
 // Focused returns the component that currently owns keyboard input, or nil.
@@ -606,23 +677,35 @@ func (h *FocusHandle) Restore() {
 		return
 	}
 
-	previous := state.previous
-	previousDeferred := state.previousDeferred
+	from := state
 	t.focusStack = t.focusStack[:len(t.focusStack)-1]
 	for len(t.focusStack) > 0 {
 		top := t.focusStack[len(t.focusStack)-1]
 		if !top.restored {
 			break
 		}
-		previous = top.previous
-		previousDeferred = top.previousDeferred
+		from = top
 		t.focusStack = t.focusStack[:len(t.focusStack)-1]
 	}
 
-	if previous != nil && !t.isFocusTargetAvailable(previous, previousDeferred) {
+	previous := from.previous
+	if previous != nil && !t.isFocusTargetAvailable(previous, from.previousDeferred) {
 		previous = nil
 	}
 	t.SetFocus(previous)
+}
+
+// pathTo returns the chain from comp up to and including anc, or nil if
+// anc is not among comp's ancestors (or comp itself).
+func pathTo(comp Component, anc *Compo) []*Compo {
+	var path []*Compo
+	for cp := comp.compo(); cp != nil; cp = cp.parentCompo() {
+		path = append(path, cp)
+		if cp == anc {
+			return path
+		}
+	}
+	return nil
 }
 
 // isFocusTargetAvailable reports whether comp is still a live focus target.
@@ -636,7 +719,7 @@ func (t *TUI) isFocusTargetAvailable(comp Component, allowDeferred bool) bool {
 	if cp.tui != t && !(allowDeferred && cp.tui == nil) {
 		return false
 	}
-	for ; cp != nil; cp = cp.parent {
+	for ; cp != nil; cp = cp.parentCompo() {
 		if cp.explicitlyRemoved {
 			return false
 		}
@@ -649,8 +732,22 @@ func (t *TUI) isFocusTargetAvailable(comp Component, allowDeferred bool) bool {
 // render-driven dismounts retain focus so a temporarily omitted component can
 // be re-mounted and notified again.
 func (t *TUI) clearFocusForRemoval(removed Component) {
+	if removed == nil {
+		return
+	}
+	// Focus scopes restore their target later, after checking that none of
+	// its ancestors is explicitly removed. Keep the path from a target up to
+	// removed alive until then, while it certainly is: by the time Restore
+	// runs, a removed subtree nobody holds could otherwise be collected from
+	// the target's weak links. If the target moves elsewhere meanwhile, the
+	// check follows its new links and this is just ballast.
+	for _, s := range t.focusStack {
+		if s.previous != nil && !t.isOverlayComponent(s.previous) {
+			s.removedPath = append(s.removedPath, pathTo(s.previous, removed.compo())...)
+		}
+	}
 	focused := t.focusedComponent
-	if focused == nil || removed == nil {
+	if focused == nil {
 		return
 	}
 	if focused == removed {
@@ -663,7 +760,7 @@ func (t *TUI) clearFocusForRemoval(removed Component) {
 	if t.isOverlayComponent(focused) {
 		return
 	}
-	for parent := focused.compo().parent; parent != nil; parent = parent.parent {
+	for parent := focused.compo().parentCompo(); parent != nil; parent = parent.parentCompo() {
 		if parent == removed.compo() {
 			t.SetFocus(nil)
 			return
@@ -1131,7 +1228,7 @@ func (t *TUI) bubbleKeyPress(comp Component, ctx Context, ev uv.KeyPressEvent) {
 	}
 
 	// Bubble up through parents.
-	cp := comp.compo().parent
+	cp := comp.compo().parentCompo()
 	for cp != nil {
 		if cp.self != nil {
 			if ic, ok := cp.self.(Interactive); ok {
@@ -1140,7 +1237,7 @@ func (t *TUI) bubbleKeyPress(comp Component, ctx Context, ev uv.KeyPressEvent) {
 				}
 			}
 		}
-		cp = cp.parent
+		cp = cp.parentCompo()
 	}
 }
 
@@ -1161,7 +1258,7 @@ func (t *TUI) bubbleMouse(comp Component, ctx Context, ev MouseEvent) {
 	}
 
 	// Bubble up through parents.
-	cp := comp.compo().parent
+	cp := comp.compo().parentCompo()
 	for cp != nil {
 		if cp.self != nil {
 			if mc, ok := cp.self.(MouseEnabled); ok {
@@ -1170,7 +1267,7 @@ func (t *TUI) bubbleMouse(comp Component, ctx Context, ev MouseEvent) {
 				}
 			}
 		}
-		cp = cp.parent
+		cp = cp.parentCompo()
 	}
 }
 
@@ -1188,7 +1285,7 @@ func (t *TUI) bubblePaste(comp Component, ctx Context, ev uv.PasteEvent) {
 	}
 
 	// Bubble up through parents.
-	cp := comp.compo().parent
+	cp := comp.compo().parentCompo()
 	for cp != nil {
 		if cp.self != nil {
 			if p, ok := cp.self.(Pasteable); ok {
@@ -1197,7 +1294,7 @@ func (t *TUI) bubblePaste(comp Component, ctx Context, ev uv.PasteEvent) {
 				}
 			}
 		}
-		cp = cp.parent
+		cp = cp.parentCompo()
 	}
 }
 
@@ -1360,7 +1457,7 @@ func (t *TUI) dispatchMousePositional(ev uv.MouseEvent) {
 	}
 
 	// Bubble to parent zones (outer zones containing this point).
-	cp := best.comp.compo().parent
+	cp := best.comp.compo().parentCompo()
 	for cp != nil {
 		if cp.self != nil {
 			if mc, ok := cp.self.(MouseEnabled); ok {
@@ -1377,7 +1474,7 @@ func (t *TUI) dispatchMousePositional(ev uv.MouseEvent) {
 				}
 			}
 		}
-		cp = cp.parent
+		cp = cp.parentCompo()
 	}
 }
 

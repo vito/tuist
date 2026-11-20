@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"weak"
 
 	uv "github.com/charmbracelet/ultraviolet"
 )
@@ -315,10 +316,38 @@ type Compo struct {
 	// depend on the height, the way a width change re-renders width-dependent
 	// ones. Render-goroutine only.
 	readScreenHeight bool
-	parent           *Compo
-	self             Component    // the Component that embeds this Compo; set by RenderChild
-	requestRender    func()       // set on the root by TUI
-	markerID         atomic.Int64 // unique zone marker ID, lazy-allocated
+	// parent is the strong link to the component this one is attached to:
+	// set structurally by [Container.AddChild], [NewSlot] and [Slot.Set], and
+	// by [Compo.RenderChild] on every render. dismountTree usually demotes it
+	// to detachedParent; walks go through parentCompo, which consults both.
+	parent *Compo
+	// detachedParent is the parent a dismounted component had, held weakly.
+	//
+	// Apps routinely keep components that the framework has dismounted (a
+	// cache of per-item views, say). A strong back-link would let any such
+	// component pin its whole former ancestor chain, and everything those
+	// ancestors reference, for as long as the app holds it. A weak link
+	// releases exactly the ancestors nobody else holds, while the walks that
+	// relied on the stale link — Update propagation to a live host, input
+	// bubbling, explicit-removal checks for focus — behave as they did
+	// whenever the ancestor is still alive. For a dismounted focus target,
+	// the TUI keeps its former ancestors alive itself (TUI.focusAncestors),
+	// so the focus checks never depend on GC timing.
+	detachedParent weak.Pointer[Compo]
+	// detachedAnchor is the mounted component whose render dropped the
+	// subtree this one was dismounted with, held weakly. parentCompo falls
+	// back to it when detachedParent has been collected — a wrapper built
+	// fresh on each render, say — so that Update from a retained component
+	// still reaches the host that decides whether to render it again.
+	detachedAnchor weak.Pointer[Compo]
+	// formerTUI is the TUI a dismounted component was mounted in, held
+	// weakly. treeTUI falls back to it once the walk up the weak links ends,
+	// so explicit removal from a detached Container or Slot still clears
+	// focus held below it.
+	formerTUI      weak.Pointer[TUI]
+	self           Component    // the Component that embeds this Compo; set by RenderChild
+	requestRender  func()       // set on the root by TUI
+	markerID       atomic.Int64 // unique zone marker ID, lazy-allocated
 
 	// Double-buffered line slices for zero-allocation rendering.
 	// renderComponent alternates between lineBufs[0] and lineBufs[1]
@@ -368,8 +397,8 @@ type renderCache struct {
 // [Context.Dispatch] to schedule state changes and Update calls.
 func (c *Compo) Update() {
 	c.generation.Add(1)
-	if c.parent != nil {
-		c.parent.Update()
+	if p := c.parentCompo(); p != nil {
+		p.Update()
 	} else if c.requestRender != nil {
 		c.requestRender()
 	}
@@ -379,16 +408,45 @@ func (c *Compo) Update() {
 // only types embedding Compo can satisfy the Component interface.
 func (c *Compo) compo() *Compo { return c }
 
+// parentCompo returns the component this one hangs under: the live parent
+// link while attached, else the parent it had when it was dismounted if that
+// is still alive, else the mounted ancestor that dropped it, if that is.
+// Walks up the tree (Update propagation, focus checks, input bubbling) go
+// through here so they see a dismounted component's former ancestors exactly
+// as long as something other than the component itself keeps them alive.
+// Render-time walks can use parent directly: everything being rendered was
+// just linked by RenderChild.
+func (c *Compo) parentCompo() *Compo {
+	if c.parent != nil {
+		return c.parent
+	}
+	if p := c.detachedParent.Value(); p != nil {
+		return p
+	}
+	return c.detachedAnchor.Value()
+}
+
+// setParent links c under p, replacing any link kept from a dismount.
+func (c *Compo) setParent(p *Compo) {
+	c.parent = p
+	c.detachedParent = weak.Pointer[Compo]{}
+	c.detachedAnchor = weak.Pointer[Compo]{}
+}
+
 // treeTUI returns the TUI that owns this component's structural tree. Parent
 // links are established when Container/Slot children are assigned, before
 // lazy mounting, so explicit removal can invalidate a deferred focus target.
 func (c *Compo) treeTUI() *TUI {
-	for cp := c; cp != nil; cp = cp.parent {
+	var former *TUI
+	for cp := c; cp != nil; cp = cp.parentCompo() {
 		if cp.tui != nil {
 			return cp.tui
 		}
+		if former == nil {
+			former = cp.formerTUI.Value()
+		}
 	}
-	return nil
+	return former
 }
 
 // RenderChild renders a child component through this Compo, using the
@@ -440,7 +498,7 @@ func (c *Compo) RenderChildResult(ctx Context, child Component) RenderResult {
 }
 
 func (c *Compo) renderChild(ctx Context, child Component) RenderResult {
-	child.compo().parent = c
+	child.compo().setParent(c)
 	child.compo().componentStats = c.componentStats
 	child.compo().explicitlyRemoved = false
 	c.renderChildren = append(c.renderChildren, child)
@@ -457,6 +515,11 @@ func (c *Compo) renderChild(ctx Context, child Component) RenderResult {
 		if cp.tui == nil {
 			cp.self = child
 			cp.tui = c.tui
+			cp.formerTUI = weak.Pointer[TUI]{}
+			if len(c.tui.focusAncestors) > 0 {
+				// Linked again; its live chain is the one that counts.
+				delete(c.tui.focusAncestors, child)
+			}
 			if c.mountCtx != nil {
 				cp.mountCtx, cp.mountCancel = context.WithCancel(c.mountCtx)
 			}
@@ -601,13 +664,17 @@ func renderComponent(ch Component, ctx Context) RenderResult {
 
 	// Dismount render children that were present last frame but not this
 	// frame (the parent's Render stopped calling RenderChild for them).
+	var anchor weak.Pointer[Compo]
 	for _, prev := range prevRenderChildren {
 		if prev.compo().tui == nil {
 			continue // was never auto-mounted
 		}
 		found := slices.Contains(cp.renderChildren, prev)
 		if !found {
-			dismountTree(prev)
+			if anchor == (weak.Pointer[Compo]{}) {
+				anchor = weak.Make(cp)
+			}
+			dismountTree(prev, anchor)
 		}
 	}
 
@@ -761,13 +828,20 @@ type Dismounter interface {
 // Children are discovered via renderChildren, which is populated by
 // RenderChild during rendering. Container and Slot use RenderChild,
 // so their children appear in renderChildren automatically.
-func dismountTree(comp Component) {
+//
+// Each dismounted component also keeps its parent only weakly, so an app
+// holding it does not hold its former ancestors; anchor is the mounted
+// component whose render dropped comp (see detachedAnchor). A component
+// with render children drops its render cache, so a remount renders, and
+// so remounts, its whole subtree.
+func dismountTree(comp Component, anchor weak.Pointer[Compo]) {
 	cp := comp.compo()
 
 	// Dismount children (populated by RenderChild during rendering).
+	hadChildren := len(cp.renderChildren) > 0
 	for _, child := range cp.renderChildren {
 		if child.compo().tui != nil {
-			dismountTree(child)
+			dismountTree(child, anchor)
 		}
 	}
 	cp.renderChildren = nil
@@ -789,18 +863,48 @@ func dismountTree(comp Component) {
 		cp.tui.disablePaste()
 	}
 
-	// The focus notification dies with the mount: if this component is
-	// refocused (or re-mounted while still the focus target), SetFocused
-	// must be delivered afresh with the new mount context — and a stale
-	// notified flag would otherwise let SetFocus blur a dismounted
-	// component through a contextless fallback.
-	if cp.tui != nil && cp.tui.focusedComponent == comp {
-		cp.tui.focusNotified = false
+	if cp.tui != nil && cp.tui.isFocusTarget(comp) {
+		// The focus notification dies with the mount: if this component is
+		// refocused (or re-mounted while still the focus target), SetFocused
+		// must be delivered afresh with the new mount context — and a stale
+		// notified flag would otherwise let SetFocus blur a dismounted
+		// component through a contextless fallback.
+		if cp.tui.focusedComponent == comp {
+			cp.tui.focusNotified = false
+		}
+		// Focus checks walk a dismounted target's former ancestors; have
+		// the TUI hold them before the links to them go weak. Ancestors
+		// are dismounted after their children, so the chain is intact.
+		cp.tui.retainFocusAncestors(comp)
 	}
 
+	if cp.tui != nil {
+		cp.formerTUI = cp.tui.weakSelf()
+	}
 	cp.tui = nil
 	cp.mountCtx = nil
 	cp.mountCancel = nil
+
+	// Drop the render cache so that a remount re-renders. Otherwise a
+	// subtree omitted from one frame and re-included unchanged would remount
+	// only its top: renderComponent would cache-hit (same generation, same
+	// width), Render would never run, and RenderChild would never remount the
+	// descendants — no OnMount, no mount context, no mouse or paste
+	// registration, background work left cancelled. A leaf needs none of
+	// that (renderChild mounts it before consulting the cache), so it keeps
+	// its cache and a returning leaf is not re-rendered.
+	if hadChildren {
+		cp.cache = nil
+	}
+
+	// Demote the parent link to a weak one. An app that keeps this component
+	// after dismount must not keep its former ancestors alive through it;
+	// see detachedParent. RenderChild, AddChild and Slot.Set relink it.
+	if cp.parent != nil {
+		cp.detachedParent = weak.Make(cp.parent)
+		cp.detachedAnchor = anchor
+		cp.parent = nil
+	}
 }
 
 // ── Container ──────────────────────────────────────────────────────────────
@@ -821,7 +925,7 @@ type Container struct {
 // mounted on the next render via [RenderChild].
 func (c *Container) AddChild(comp Component) {
 	cp := comp.compo()
-	cp.parent = &c.Compo
+	cp.setParent(&c.Compo)
 	cp.explicitlyRemoved = false
 	c.Children = append(c.Children, comp)
 	c.Update()
@@ -837,7 +941,11 @@ func (c *Container) RemoveChild(comp Component) {
 			if tui := c.treeTUI(); tui != nil {
 				tui.clearFocusForRemoval(comp)
 			}
-			c.Children = append(c.Children[:i], c.Children[i+1:]...)
+			// A fresh slice, not an in-place delete: a range over the old
+			// Children in progress (Render, if a child's OnMount removes
+			// it) keeps its snapshot, and the old array — which still holds
+			// comp — is left to the GC rather than kept by the container.
+			c.Children = slices.Concat(c.Children[:i:i], c.Children[i+1:])
 			c.Update()
 			return
 		}
@@ -884,7 +992,7 @@ func NewSlot(child Component) *Slot {
 	s := &Slot{child: child}
 	if child != nil {
 		cp := child.compo()
-		cp.parent = &s.Compo
+		cp.setParent(&s.Compo)
 		cp.explicitlyRemoved = false
 	}
 	return s
@@ -902,7 +1010,7 @@ func (s *Slot) Set(c Component) {
 	}
 	if c != nil {
 		cp := c.compo()
-		cp.parent = &s.Compo
+		cp.setParent(&s.Compo)
 		cp.explicitlyRemoved = false
 	}
 	s.child = c
